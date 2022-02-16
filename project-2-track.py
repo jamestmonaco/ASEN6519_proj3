@@ -12,7 +12,7 @@ import math
 
 #%% track_GPS_L1CA_signal definition
 def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, **kwargs):
-    '''
+    '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
     Inputs:
@@ -107,29 +107,29 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     # Open the IF sample file
     with open(source_params['filepath'], 'rb') as f:
         
-        # Run the tracking loop
         for block_index in range(N_blocks):
-
+            
+            # 0. end the loop if you're at the end of the file
             if sample_index + N_block_samples >= source_params['file_length']:
                 break
             print('\r {0: >4.1f}'.format(sample_index / source_params['samp_rate']), end='')
 
-            
             # 1. Get the next block of samples
             block = sample_loader.generate_sample_block(f, sample_index, N_block_samples)
-
             
             # 2. Reference Generation and Correlation
             #  For efficiency, this step is broken down into carrier wipeoff, code wipeoff, and
             # summation.  This process is equivalent to generating complete references and
             # correlating them with our IF samples.
 
+            # By this time, the referenece is generated, and is required for the wipeoff operations.
+
             # 2a. Wipeoff carrier
             #  The reason we do this in a separate step is because the `cos` and `sin` operations
             # are rather expensive (but less expensive than `exp`). So if we can get away with
             # generating our carrier just once, it's worth it.
             phi = 2 * pi * carr_phase + 2 * pi * (inter_freq + doppler) * block_time
-            carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier. Why the complex part? Is this for I/Q channels? 
+            carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier. This is the generation of the reference?
             block_wo_carrier = block * carrier_conj                 # Mixing down to baseband for both I and Q bands?
             
             # 2b. Code wipeoff and summation
@@ -142,11 +142,10 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             early, prompt, late = epl_correlations # result of the correlation
 
             
-            # 3. Use discriminators to estimate state errors
+            # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop
          
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7
-            code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
-                        
+            code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))                        
             unfiltered_code_phase = code_phase + code_phase_error
 
             # 3b. Compute phase error (in cycles) using appropriate phase discriminator
@@ -157,13 +156,13 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             # `carr_phase_error + integration_time + doppler_error / 2`
             # for a 2nd-order PLL, but we'll only define "unfiltered" carrier phase for our outputs.
             carr_phase_error = delta_theta
-            unfiltered_carr_phase = carr_phase + delta_theta
-            
+            unfiltered_carr_phase = carr_phase + delta_theta            
             
             # 4. Apply loop filters to reduce noise in state error estimates
+            # These loop filters should be removed for open-loop tracking
             
             # 4a. Filter code phase error to reduce noise
-            #  We implement the DLL filter by updating code phase in proportion to code phase 
+            # We implement the DLL filter by updating code phase in proportion to code phase 
             # dicriminator output.  The result has the equivalent response of a 1st-order DLL filter
             filtered_code_phase_error = 4 * integration_time * DLL_bandwidth * code_phase_error
             
