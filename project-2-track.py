@@ -9,6 +9,7 @@ from utilities.hdf5_utils import write_dict_to_hdf5
 
 # other libraries 
 import math
+from scipy.io import loadmat
 
 #%% track_GPS_L1CA_signal definition
 def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, **kwargs):
@@ -225,6 +226,13 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     
     return outputs
 
+#%% Loading the signal model and navigation solution
+signalModel_filepath = '../Data/haleakala_20210611_160000_RX7_signal_model.mat'
+signalModel = loadmat(signalModel_filepath)
+
+navSoln_filepath = '../Data/haleakala_20210611_160000_RX7_nav.mat'
+navSoln = loadmat(navSoln_filepath) 
+
 #%% Choose IF data file and appropriate data parameters
 
 # This should be the path to raw IF data file that you download from the class site
@@ -249,7 +257,7 @@ file_start_time_gpst = dt2gpst(file_start_time_dt)
 
 #%%  Choose PRN and tracking parameters
 prn = 2
-challengeQuestion = True    # set to FALSE if the challenge question is not being investigated
+challengeQuestion = False    # set to FALSE if the challenge question is not being investigated
 
 # The following variables are chosen by us (Brenna and James)
 N_integration_code_periods = 1
