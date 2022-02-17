@@ -4,7 +4,7 @@ from numpy import zeros, arange, nan, real, imag, conj, pi, sin, arctan, arctan2
 from utilities.gpsl1ca import get_GPS_L1CA_code_sequence, acquire_GPS_L1CA_signal, \
     L1CA_CODE_RATE, L1CA_CODE_LENGTH, L1CA_CARRIER_FREQ
 from utilities.file_source import get_file_source_info, SampleLoader
-from utilities.gpst import dt2gpst, gpst2dt
+from utilities.gpst import dt2gpst, gpst2dt, gpst_week_seconds
 from utilities.hdf5_utils import write_dict_to_hdf5
 
 # other libraries 
@@ -12,7 +12,7 @@ import math
 from scipy.io import loadmat
 
 #%% track_GPS_L1CA_signal definition
-def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, signal_model, **kwargs):
+def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, file_start_time_gpst, signal_model, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -54,12 +54,19 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
                                  source_params['is_signed'], source_params['is_integer'],
                                  source_params['is_complex'], source_params['i_lsn'])
     
-    # OPEN LOOP: loading in the signal model
-    # DO WE NEED TO ACCOUNT FOR RX clock bias?
+    # OPEN LOOP: loading in the signal model and ALIGNING IT WITH OUR DATA
     tau = numpy.transpose(signal_model['tau_D'])[prn-1]
     w = numpy.transpose(signal_model['doppler_D'])[prn-1]
-    t_OL = (signal_model['timeVec'][0])  # this is in GPS time into the week
-    t_OL = t_OL - t_OL[0]
+    t_OL = (signal_model['timeVec'][0])  # this is in GPS time into the week    
+    
+    # getting the gps time into the week from the time at the start of the file 
+    file_start_TOW = gpst_week_seconds(file_start_time_gpst)
+    start_idx = numpy.where( abs(t_OL - file_start_TOW) < 9e-5 )
+    
+    # keeping only the data that alligns
+    tau = tau[start_idx:]
+    w = w[start_idx]
+    t_OL= t_OL[start_idx:]
     
     # Here we define the "tracking block size" as an integer multiple of the L1CA code period.
     # Nominally, the tracking block size will be some multiple of 1 millisecond, and is equal to the
