@@ -12,7 +12,7 @@ import math
 from scipy.io import loadmat
 
 #%% track_GPS_L1CA_signal definition
-def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, **kwargs):
+def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, signal_model, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -25,8 +25,13 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
         
         `N_integration_code_periods` -- number of code periods (default 1) over which to coherently integrate when tracking
         `epl_chip_spacing` -- spacing of the EPL correlators in units of chips (default 0.5)
-        `DLL_bandwidth` -- the bandwidth of the DLL (delay-locked loop) loop filter in Hz (default 5)
-        `PLL_bandwidth` -- the bandwidth of the PLL (phase-locked loop) filter in Hz (default 20)
+        
+        OLD closed-loop inputs that are no longer needed for open-loop aquisition: 
+            `DLL_bandwidth` -- the bandwidth of the DLL (delay-locked loop) loop filter in Hz (default 5)
+            `PLL_bandwidth` -- the bandwidth of the PLL (phase-locked loop) filter in Hz (default 20)
+        
+        NEW inputs required for open-loop aquisition: 
+            'signal_model' -- a dict containing a pre-computed model of the signal
     
     Notes:
     
@@ -36,8 +41,8 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     step accordingly in the tracking loop, but the nominal time step is sufficient for designing our loop filter.
     
     James' Notes on confusing things(tm): 
-        * DLLs are used to detect code phase (via code phase error of current estimate)
-        * PLLs are used to detect carrier phase and frequency (via error of current estimates)
+        * Delay locked loops (DLLs) are used to detect code phase (via code phase error of current estimate)
+        * Phase locked loops (PLLs) are used to detect carrier phase and frequency (via error of current estimates)
     '''   
     
     # 0. Here we set up the tracking loop
@@ -68,10 +73,6 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     # The EPL correlation delay spacing controls the sensitivity of the DLL to noise vs. multipath.
     # EPL stands for early, prompt, and late (correlators)
     epl_chip_spacing = kwargs.get('epl_chip_spacing', 0.5)
-
-    # Here we define the DLL and PLL loop filter bandwidths, with default values of 5 and 20 Hz, resp.
-    DLL_bandwidth = kwargs.get('DLL_bandwidth', 5)
-    PLL_bandwidth = kwargs.get('PLL_bandwidth', 20)
 
     # Here we preallocate our outputs
     output_keys = ['sample_index', 'early', 'prompt', 'late',
@@ -122,16 +123,17 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             #  For efficiency, this step is broken down into carrier wipeoff, code wipeoff, and
             # summation.  This process is equivalent to generating complete references and
             # correlating them with our IF samples.
-
+            
             # By this time, the referenece is generated, and is required for the wipeoff operations.
 
             # 2a. Wipeoff carrier
-            #  The reason we do this in a separate step is because the `cos` and `sin` operations
-            # are rather expensive (but less expensive than `exp`). So if we can get away with
-            # generating our carrier just once, it's worth it.
+            # This is mixing the recorded signal down to baseband 
             phi = 2 * pi * carr_phase + 2 * pi * (inter_freq + doppler) * block_time
-            carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier. This is the generation of the reference?
-            block_wo_carrier = block * carrier_conj                 # Mixing down to baseband for both I and Q bands?
+            carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier
+            block_wo_carrier = block * carrier_conj                 # Mixing down to baseband for both I and Q bands
+            
+            # creating the reference signal to do correlations with 
+            
             
             # 2b. Code wipeoff and summation
             #  Here we run a brief for-loop to obtain the early, late, and promt correlator outputs. 
@@ -141,10 +143,8 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
                 code_samples = 1 - 2 * code_seq[chip_indices]                                                       # Code samples, ranging from [-1,1]
                 epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                # performing the correlation
             early, prompt, late = epl_correlations # result of the correlation
-
-            
-            # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop
-         
+   
+            # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7
             code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))                        
             unfiltered_code_phase = code_phase + code_phase_error
@@ -159,29 +159,6 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             carr_phase_error = delta_theta
             unfiltered_carr_phase = carr_phase + delta_theta            
             
-            # 4. Apply loop filters to reduce noise in state error estimates
-            # These loop filters should be removed for open-loop tracking
-            
-            # 4a. Filter code phase error to reduce noise
-            # We implement the DLL filter by updating code phase in proportion to code phase 
-            # dicriminator output.  The result has the equivalent response of a 1st-order DLL filter
-            filtered_code_phase_error = 4 * integration_time * DLL_bandwidth * code_phase_error
-            
-            filtered_code_phase = code_phase + filtered_code_phase_error
-
-            # 4b. Filter carrier phase error to reduce noise
-            #  We implement the PLL filter by updating carrier phase and frequency in proportion to
-            # the phase discriminator output in a way that has the equivalent response to a 2nd-order
-            # PLL.
-            xi = 1 / sqrt(2)
-            omega_n = PLL_bandwidth / .53
-            filtered_carr_phase_error = (2 * xi * omega_n * integration_time - 3 / 2 * omega_n**2 * integration_time**2) * delta_theta
-            filtered_doppler_error = omega_n**2 * integration_time * delta_theta
-            
-            filtered_carr_phase = carr_phase + filtered_carr_phase_error
-            filtered_doppler = doppler + filtered_doppler_error
-
-            
             # 5. Save our tracking loop outputs
             outputs['sample_index'][block_index] = sample_index
             outputs['early'][block_index] = early
@@ -189,36 +166,28 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             outputs['late'][block_index] = late
             outputs['code_phase'][block_index] = code_phase
             outputs['unfiltered_code_phase'][block_index] = unfiltered_code_phase
-            outputs['filtered_code_phase'][block_index] = filtered_code_phase
             outputs['carr_phase'][block_index] = carr_phase
             outputs['unfiltered_carr_phase'][block_index] = unfiltered_carr_phase
-            outputs['filtered_carr_phase'][block_index] = filtered_carr_phase
             outputs['doppler'][block_index] = doppler
-            outputs['filtered_doppler'][block_index] = filtered_doppler
-
             
             # 6. Propagate state to next time epoch
-            
             # As part of this step, we apply carrier-aiding by adjusting `code_rate` based on Doppler
             code_rate = L1CA_CODE_RATE * (1 + doppler / L1CA_CARRIER_FREQ)
             
             # First we adjust the nominal time step to go to start of next desired chip
             target_code_phase = (block_index + 1) * block_length_chips
-            sample_step = int((target_code_phase - filtered_code_phase) * source_params['samp_rate'] / code_rate)
+            sample_step = int((target_code_phase - code_phase) * source_params['samp_rate'] / code_rate)
             time_step = sample_step / source_params['samp_rate']
             
             # Then we update the states and sample index accordingly
-            code_phase = filtered_code_phase + code_rate * time_step
-            carr_phase = filtered_carr_phase + (inter_freq + doppler) * time_step
-            doppler = filtered_doppler
+            code_phase = code_phase + code_rate * time_step
+            carr_phase = carr_phase + (inter_freq + doppler) * time_step
             
             sample_index += sample_step
 
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
     outputs['prn'] = prn
-    outputs['DLL_bandwidth'] = DLL_bandwidth
-    outputs['PLL_bandwidth'] = PLL_bandwidth
     outputs['N_integration_code_periods'] = N_integration_code_periods
     outputs['integration_time'] = integration_time
     outputs['time'] = outputs['sample_index'] / source_params['samp_rate']
@@ -226,13 +195,17 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     
     return outputs
 
-#%% Loading the signal model and navigation solution
-signalModel_filepath = '../Data/haleakala_20210611_160000_RX7_signal_model.mat'
+#%% Loading the signal model, navigation solution, and DTU18 MSS model
+signalModel_filepath = './Data/haleakala_20210611_160000_RX7_signal_model.mat'
 signalModel = loadmat(signalModel_filepath)
 
-navSoln_filepath = '../Data/haleakala_20210611_160000_RX7_nav.mat'
+navSoln_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
 navSoln = loadmat(navSoln_filepath) 
 
+# don't load DTU18. It is very large. 
+# DTU18_filepath = './Data/dtu18.mat'
+# DTU18 = loadmat(DTU18_filepath)
+    
 #%% Choose IF data file and appropriate data parameters
 
 # This should be the path to raw IF data file that you download from the class site
