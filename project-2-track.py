@@ -12,7 +12,7 @@ import math
 from scipy.io import loadmat
 
 #%% track_GPS_L1CA_signal definition
-def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, signal_model, **kwargs):
+def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, signal_model, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -25,13 +25,14 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
         
         `N_integration_code_periods` -- number of code periods (default 1) over which to coherently integrate when tracking
         `epl_chip_spacing` -- spacing of the EPL correlators in units of chips (default 0.5)
-        
-        OLD closed-loop inputs that are no longer needed for open-loop aquisition: 
-            `DLL_bandwidth` -- the bandwidth of the DLL (delay-locked loop) loop filter in Hz (default 5)
-            `PLL_bandwidth` -- the bandwidth of the PLL (phase-locked loop) filter in Hz (default 20)
-        
+
         NEW inputs required for open-loop aquisition: 
             'signal_model' -- a dict containing a pre-computed model of the signal
+            ** NOT NEEDED? ** 'nav_soln' -- a dict containing the navigation soln, rx/tx timestamps, ECEF coords, drift, etc        
+
+        OLD closed-loop inputs that are NOT NEEDED for open-loop aquisition: 
+            `DLL_bandwidth` -- the bandwidth of the DLL (delay-locked loop) loop filter in Hz (default 5)
+            `PLL_bandwidth` -- the bandwidth of the PLL (phase-locked loop) filter in Hz (default 20)
     
     Notes:
     
@@ -43,8 +44,7 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     James' Notes on confusing things(tm): 
         * Delay locked loops (DLLs) are used to detect code phase (via code phase error of current estimate)
         * Phase locked loops (PLLs) are used to detect carrier phase and frequency (via error of current estimates)
-    '''   
-    
+    '''       
     # 0. Here we set up the tracking loop
     #  Any computations we can do outside the main loop will speed up our code, improve our own lives,
     # and be better for the planet.
@@ -53,6 +53,13 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     sample_loader = SampleLoader(source_params['samp_rate'], source_params['bit_depth'],
                                  source_params['is_signed'], source_params['is_integer'],
                                  source_params['is_complex'], source_params['i_lsn'])
+    
+    # OPEN LOOP: loading in the signal model
+    # DO WE NEED TO ACCOUNT FOR RX clock bias?
+    tau = numpy.transpose(signal_model['tau_D'])[prn-1]
+    w = numpy.transpose(signal_model['doppler_D'])[prn-1]
+    t_OL = (signal_model['timeVec'][0])  # this is in GPS time into the week
+    t_OL = t_OL - t_OL[0]
     
     # Here we define the "tracking block size" as an integer multiple of the L1CA code period.
     # Nominally, the tracking block size will be some multiple of 1 millisecond, and is equal to the
@@ -66,7 +73,7 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     integration_time = block_duration
 
     # Here we define a time array that we use for sampling our reference signal
-    N_block_samples = int(integration_time * source_params['samp_rate'])
+    N_block_samples = int(integration_time * source_params['samp_rate']) # number of samples per block
     block_time = arange(N_block_samples) / source_params['samp_rate']
     N_blocks = source_params['file_length'] // N_block_samples
 
@@ -95,12 +102,10 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     # tracking will begin at this sample and our initial code phase will be approximately 0.
     code_rate = L1CA_CODE_RATE * (1 + doppler_acq / L1CA_CARRIER_FREQ)
     start_sample = acq_sample_index + \
-        int(((-code_phase_acq) % (20 * L1CA_CODE_LENGTH)) * source_params['samp_rate'] / code_rate)
+        int(((-code_phase_acq) % (20 * L1CA_CODE_LENGTH)) * source_params['samp_rate'] / code_rate)    
     
     # Set tracking state variables
-    code_phase = 0
     code_rate = L1CA_CODE_RATE * (1 + doppler_acq / L1CA_CARRIER_FREQ)
-    carr_phase = 0
     doppler = doppler_acq
 
     sample_index = start_sample
@@ -112,11 +117,11 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
         for block_index in range(N_blocks):
             
             # 0. end the loop if you're at the end of the file
-            if sample_index + N_block_samples >= source_params['file_length']:
+            if sample_index + N_block_samples >= len(t_OL):
                 break
             print('\r {0: >4.1f}'.format(sample_index / source_params['samp_rate']), end='')
 
-            # 1. Get the next block of samples
+            # 1. Get the next block of samples of the data
             block = sample_loader.generate_sample_block(f, sample_index, N_block_samples)
             
             # 2. Reference Generation and Correlation
@@ -128,26 +133,38 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
 
             # 2a. Wipeoff carrier
             # This is mixing the recorded signal down to baseband 
-            phi = 2 * pi * carr_phase + 2 * pi * (inter_freq + doppler) * block_time
+            phi = 2 * pi * (inter_freq + doppler) * block_time
             carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier
             block_wo_carrier = block * carrier_conj                 # Mixing down to baseband for both I and Q bands
             
-            # creating the reference signal to do correlations with 
-            
+            # # create signal model
+            # sample_idx = numpy.arange(sample_index,(sample_index+N_block_samples),dtype=int)
+            # tau_block = numpy.array(tau[sample_idx], dtype='int')
+            # w_block = w[sample_idx]
+            # code_seq_model = 1 - 2 * code_seq[tau_block]
+            # ref_sig = (numpy.cos(w_block) - 1j * numpy.sin(w_block)) * code_seq_model
             
             # 2b. Code wipeoff and summation
             #  Here we run a brief for-loop to obtain the early, late, and promt correlator outputs. 
             epl_correlations = []
-            for chip_delay in [epl_chip_spacing, 0, -epl_chip_spacing]:                                             # Early, prompt, and late correlator timing
-                chip_indices = (code_phase + chip_delay + code_rate * block_time).astype(int) % L1CA_CODE_LENGTH    # indices of relevant chips in the sample
-                code_samples = 1 - 2 * code_seq[chip_indices]                                                       # Code samples, ranging from [-1,1]
+            for chip_delay in [epl_chip_spacing, -epl_chip_spacing, 0 ]:                                             # Early, prompt, and late correlator timing
+                # reference signal generation
+                tau_idx_start = (sample_index + chip_delay) # start index of block, + chip delay
+                tau_idx_end = (tau_idx_start + N_block_samples)                             # end index of block  
+                tau_idx_start, tau_idx_end = int(tau_idx_start), int(tau_idx_end)
+                tau_idx = numpy.arange(tau_idx_start,tau_idx_end,dtype=int)
+                                
+                chip_indices = numpy.array(tau[tau_idx],dtype=int)
+                code_samples = 1 - 2 * code_seq[chip_indices]
+                                
                 epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                # performing the correlation
-            early, prompt, late = epl_correlations # result of the correlation
-   
+            
+            early, late, prompt = epl_correlations # result of the correlation
+             
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
-            # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7
-            code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))                        
-            unfiltered_code_phase = code_phase + code_phase_error
+            # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
+            code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
+            code_phase = tau[0] + code_phase_error
 
             # 3b. Compute phase error (in cycles) using appropriate phase discriminator
             # (I know greek letters are typically in radians, but make sure `delta_theta` is in cycles)
@@ -155,9 +172,8 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             
             # Note: the phase error `delta_theta` is actually equal to:
             # `carr_phase_error + integration_time + doppler_error / 2`
-            # for a 2nd-order PLL, but we'll only define "unfiltered" carrier phase for our outputs.
             carr_phase_error = delta_theta
-            unfiltered_carr_phase = carr_phase + delta_theta            
+            carr_phase = w[0] + carr_phase_error   
             
             # 5. Save our tracking loop outputs
             outputs['sample_index'][block_index] = sample_index
@@ -165,24 +181,12 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
             outputs['prompt'][block_index] = prompt
             outputs['late'][block_index] = late
             outputs['code_phase'][block_index] = code_phase
-            outputs['unfiltered_code_phase'][block_index] = unfiltered_code_phase
             outputs['carr_phase'][block_index] = carr_phase
-            outputs['unfiltered_carr_phase'][block_index] = unfiltered_carr_phase
             outputs['doppler'][block_index] = doppler
             
-            # 6. Propagate state to next time epoch
-            # As part of this step, we apply carrier-aiding by adjusting `code_rate` based on Doppler
-            code_rate = L1CA_CODE_RATE * (1 + doppler / L1CA_CARRIER_FREQ)
-            
-            # First we adjust the nominal time step to go to start of next desired chip
+            # updating indices 
             target_code_phase = (block_index + 1) * block_length_chips
             sample_step = int((target_code_phase - code_phase) * source_params['samp_rate'] / code_rate)
-            time_step = sample_step / source_params['samp_rate']
-            
-            # Then we update the states and sample index accordingly
-            code_phase = code_phase + code_rate * time_step
-            carr_phase = carr_phase + (inter_freq + doppler) * time_step
-            
             sample_index += sample_step
 
     for key in output_keys:
@@ -194,22 +198,39 @@ def track_GPS_L1CA_signal(prn, source_params, acq_sample_index, code_phase_acq, 
     outputs['epl_chip_spacing'] = epl_chip_spacing 
     
     return outputs
+#%% Loading the signal model, navigation solution, and DTU18 MSS model.
+# dicts are re-made to cut out the headers, and to have the keys written down 
+# in the code for reference. 
 
-#%% Loading the signal model, navigation solution, and DTU18 MSS model
+# loading signal model
 signalModel_filepath = './Data/haleakala_20210611_160000_RX7_signal_model.mat'
-signalModel = loadmat(signalModel_filepath)
+signalModel_in = loadmat(signalModel_filepath)
+signalModel_keys = ['az_dlos', 'az_sp', 'doppler_D', 'doppler_R', 'el_dlos',
+                    'el_sp', 'gpsweek', 'sp_lat', 'sp_lon', 'sp_mss', 'tau_D',
+                    'tau_R', 'timeVec']
+signalModel = {key: [0] for key in signalModel_keys}
+for keys in signalModel_keys:
+    signalModel[keys] = signalModel_in[keys]
+del signalModel_in
 
-navSoln_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
-navSoln = loadmat(navSoln_filepath) 
+# # loading navigation soln
+# navSoln_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
+# navSoln_in = loadmat(navSoln_filepath) 
+# navSoln_keys = ['Rx_Clk_Bias', 'Rx_Clk_Drift','Rx_height', 'Rx_lat','Rx_lon',
+#                 'Rx_TimeStamp','Rx_Vx','Rx_Vy','Rx_Vz','Rx_X','Rx_Y','Rx_Z']
+# navSoln = {key: [0] for key in navSoln_keys}
+# for key in navSoln_keys:
+#     navSoln[key] = navSoln_in[key]
+# del navSoln_in
 
-# don't load DTU18. It is very large. 
+# please don't load DTU18. It is very large. 
 # DTU18_filepath = './Data/dtu18.mat'
 # DTU18 = loadmat(DTU18_filepath)
     
 #%% Choose IF data file and appropriate data parameters
 
 # This should be the path to raw IF data file that you download from the class site
-data_filepath = '../Data/haleakala_20210611_160000_RX7.dat'
+data_filepath = './Data/haleakala_20210611_160000_RX7.dat'
 
 # The file contains complex 8-bit samples, where the first byte is the real component
 # The sampling rate is 5 MHz and the front-end center frequency is at GPS L1
@@ -230,54 +251,24 @@ file_start_time_gpst = dt2gpst(file_start_time_dt)
 
 #%%  Choose PRN and tracking parameters
 prn = 2
-challengeQuestion = False    # set to FALSE if the challenge question is not being investigated
 
 # The following variables are chosen by us (Brenna and James)
 N_integration_code_periods = 1
-epl_chip_spacing = 0.5 # (units: chips)
-
-# challenge question: setting BWs to extreme values
-if (challengeQuestion):    
-    # by having the same number of steps in both parameters, each file can have 
-    # a unique BW in both areas. 
-    BW_steps = 5    # number of BW to investigate
-    
-    DLL_BW_start = 0.1    # start of BW range
-    DLL_BW_stop = 1000.1    # stop of BW range
-    
-    PLL_BW_start = 0.1    # start of BW range
-    PLL_BW_stop = 1000.1    # stop of BW range
-    
-    # creating BW vectors
-    DLL_BW = numpy.linspace(DLL_BW_start,DLL_BW_stop,BW_steps)
-    PLL_BW = numpy.linspace(PLL_BW_start,PLL_BW_stop,BW_steps)
-    BW_all = numpy.transpose([DLL_BW, PLL_BW])
-else:
-    # if not doing the challenge question, only do 1 set of BW
-    DLL_BW = [5]  # (units: Hz)
-    PLL_BW = [20] # (units: Hz)
-    
+epl_chip_spacing = 0.5 # (units: chips)  
 
 # Creating output folder
 output_dir = './tracking-output/'
-if (challengeQuestion):
-    output_dir = './tracking-output/challengeQuestion_G{:02}/'.format(prn)
 os.makedirs(output_dir, exist_ok=True)
 
-# Recording output data 
-for DLL_bandwidth in DLL_BW:
-    for PLL_bandwidth in PLL_BW:
-        # Acquire
-        c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
+# Acquire
+c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
 
-        # Track
-        outputs = track_GPS_L1CA_signal(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
-            N_integration_code_periods=N_integration_code_periods,
-            DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, epl_chip_spacing=epl_chip_spacing)
+# Track
+outputs = track_GPS_L1CA_signal_open(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
+    N_integration_code_periods=N_integration_code_periods, epl_chip_spacing=epl_chip_spacing, signal_model = signalModel)
 
-        output_filename = 'PRN-{0:02}_N-int-{1:02}_DLL-BW-{2:02}_PLL-BW-{3:02}_chpWd-{4:02}.mat'.format(
-            prn, N_integration_code_periods, DLL_bandwidth, PLL_bandwidth,epl_chip_spacing)
-        output_filepath = os.path.join(output_dir, output_filename)
-        with h5py.File(output_filepath, 'w') as f:
-            write_dict_to_hdf5(outputs, f)
-
+output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OL.mat'.format(
+    prn, N_integration_code_periods,epl_chip_spacing)
+output_filepath = os.path.join(output_dir, output_filename)
+with h5py.File(output_filepath, 'w') as f:
+    write_dict_to_hdf5(outputs, f)
