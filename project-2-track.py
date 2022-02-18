@@ -67,6 +67,8 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
     tau = tau[start_idx:]
     w = w[start_idx:]
     t_OL= t_OL[start_idx:]
+    model_samp_rate = numpy.round(1 / (numpy.mean( numpy.diff( t_OL ) )))
+    sampling_ratio = source_params['samp_rate'] / model_samp_rate    
     
     # Here we define the "tracking block size" as an integer multiple of the L1CA code period.
     # Nominally, the tracking block size will be some multiple of 1 millisecond, and is equal to the
@@ -116,21 +118,25 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
     doppler = doppler_acq
 
     sample_index = start_sample
-    block_index = 0
+    # block_index = 0
+    model_idx = 0
 
     # Open the IF sample file
     with open(source_params['filepath'], 'rb') as f:
-        
         for block_index in range(N_blocks):
             
+            
             # 0. end the loop if you're at the end of the file
-            if sample_index + N_block_samples >= len(t_OL):
+            if sample_index + N_block_samples >= source_params['file_length'] or model_idx > len(t_OL):
                 break
             print('\r {0: >4.1f}'.format(sample_index / source_params['samp_rate']), end='')
 
             # 1. Get the next block of samples of the data
             block = sample_loader.generate_sample_block(f, sample_index, N_block_samples)
-            
+            code_phase = tau[model_idx]
+            doppler = w[model_idx]
+            w_epl = doppler * 2 * pi * block_time
+  
             # 2. Reference Generation and Correlation
             #  For efficiency, this step is broken down into carrier wipeoff, code wipeoff, and
             # summation.  This process is equivalent to generating complete references and
@@ -144,59 +150,64 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
             carrier_conj = numpy.cos(phi) - 1j * numpy.sin(phi)     # conjugate of the carrier
             block_wo_carrier = block * carrier_conj                 # Mixing down to baseband for both I and Q bands
             
-            # # create signal model
-            # sample_idx = numpy.arange(sample_index,(sample_index+N_block_samples),dtype=int)
-            # tau_block = numpy.array(tau[sample_idx], dtype='int')
-            # w_block = w[sample_idx]
-            # code_seq_model = 1 - 2 * code_seq[tau_block]
-            # ref_sig = (numpy.cos(w_block) - 1j * numpy.sin(w_block)) * code_seq_model
-            
             # 2b. Code wipeoff and summation
             #  Here we run a brief for-loop to obtain the early, late, and promt correlator outputs. 
             epl_correlations = []
             for chip_delay in [epl_chip_spacing, -epl_chip_spacing, 0 ]:                                             # Early, prompt, and late correlator timing
                 # reference signal generation
-                tau_idx_start = (sample_index + chip_delay) # start index of block, + chip delay
-                tau_idx_end = (tau_idx_start + N_block_samples)                             # end index of block  
-                tau_idx_start, tau_idx_end = int(tau_idx_start), int(tau_idx_end)
-                tau_idx = numpy.arange(tau_idx_start,tau_idx_end,dtype=int)
+                # tau_idx_start = (sample_index + chip_delay) # start index of block, + chip delay
+                # tau_idx_end = (tau_idx_start + N_block_samples)                             # end index of block  
+                # tau_idx_start, tau_idx_end = int(tau_idx_start), int(tau_idx_end)
+                # tau_idx = numpy.arange(tau_idx_start,tau_idx_end,dtype=int)
+                # chip_indices = numpy.array(tau[tau_idx],dtype=int)
+
+               chip_indices = (code_phase + chip_delay + code_rate * block_time).astype(int) % L1CA_CODE_LENGTH    # indices of relevant chips in the sample
+               code_samples = 1 - 2 * code_seq[chip_indices]                                                       # Code samples, ranging from [-1,1]
+               ref_signal = code_samples * (numpy.cos(w_epl) + 1j*numpy.sin(w_epl))
                                 
-                chip_indices = numpy.array(tau[tau_idx],dtype=int)
-                code_samples = 1 - 2 * code_seq[chip_indices]
-                                
-                epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                # performing the correlation
-            
+               epl_correlations.append(numpy.mean(block_wo_carrier * ref_signal))                                # performing the correlation
             early, late, prompt = epl_correlations # result of the correlation
              
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
             code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
-            code_phase = tau + code_phase_error
-
+            unfiltered_code_phase = code_phase + code_phase_error
+            
             # 3b. Compute phase error (in cycles) using appropriate phase discriminator
             # (I know greek letters are typically in radians, but make sure `delta_theta` is in cycles)
             delta_theta = numpy.arctan(prompt.imag / prompt.real) / (2*pi)
             
             # Note: the phase error `delta_theta` is actually equal to:
             # `carr_phase_error + integration_time + doppler_error / 2`
+            carr_phase = 0
             carr_phase_error = delta_theta
-            carr_phase = w + carr_phase_error   
+            unfiltered_carr_phase = carr_phase + carr_phase_error   
             
-            # print(carr_phase)
+            # how do we create this
+            filtered_carr_phase = 0
+            filtered_code_phase = 0
+            filtered_doppler = 0
             
             # 5. Save our tracking loop outputs
             outputs['sample_index'][block_index] = sample_index
             outputs['early'][block_index] = early
             outputs['prompt'][block_index] = prompt
             outputs['late'][block_index] = late
-            outputs['code_phase'][block_index] = code_phase[0]
-            outputs['carr_phase'][block_index] = carr_phase[0]
+            outputs['code_phase'][block_index] = code_phase
+            outputs['unfiltered_code_phase'][block_index] = unfiltered_code_phase
+            outputs['filtered_code_phase'][block_index] = filtered_code_phase
+            outputs['carr_phase'][block_index] = carr_phase
+            outputs['unfiltered_carr_phase'][block_index] = unfiltered_carr_phase
+            outputs['filtered_carr_phase'][block_index] = filtered_carr_phase
             outputs['doppler'][block_index] = doppler
+            outputs['filtered_doppler'][block_index] = filtered_doppler
             
             # updating indices 
             target_code_phase = (block_index + 1) * block_length_chips
-            sample_step = int((target_code_phase - code_phase[0]) * source_params['samp_rate'] / code_rate)
+            sample_step = int((target_code_phase - code_phase) * source_params['samp_rate'] / code_rate)
             sample_index += sample_step
+            model_idx = int(sample_index / sampling_ratio)    
+            print("\n model idx: ", model_idx)
 
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
