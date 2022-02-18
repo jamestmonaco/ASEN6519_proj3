@@ -61,11 +61,11 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
     
     # getting the gps time into the week from the time at the start of the file 
     file_start_TOW = gpst_week_seconds(file_start_time_gpst)
-    start_idx = numpy.where( abs(t_OL - file_start_TOW) < 9e-5 )
+    start_idx = numpy.where( abs(t_OL - file_start_TOW) < 9e-5 )[0][0]
     
     # keeping only the data that alligns
     tau = tau[start_idx:]
-    w = w[start_idx]
+    w = w[start_idx:]
     t_OL= t_OL[start_idx:]
     
     # Here we define the "tracking block size" as an integer multiple of the L1CA code period.
@@ -171,7 +171,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
             code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
-            code_phase = tau[0] + code_phase_error
+            code_phase = tau + code_phase_error
 
             # 3b. Compute phase error (in cycles) using appropriate phase discriminator
             # (I know greek letters are typically in radians, but make sure `delta_theta` is in cycles)
@@ -180,20 +180,22 @@ def track_GPS_L1CA_signal_open(prn, source_params, acq_sample_index, code_phase_
             # Note: the phase error `delta_theta` is actually equal to:
             # `carr_phase_error + integration_time + doppler_error / 2`
             carr_phase_error = delta_theta
-            carr_phase = w[0] + carr_phase_error   
+            carr_phase = w + carr_phase_error   
+            
+            # print(carr_phase)
             
             # 5. Save our tracking loop outputs
             outputs['sample_index'][block_index] = sample_index
             outputs['early'][block_index] = early
             outputs['prompt'][block_index] = prompt
             outputs['late'][block_index] = late
-            outputs['code_phase'][block_index] = code_phase
-            outputs['carr_phase'][block_index] = carr_phase
+            outputs['code_phase'][block_index] = code_phase[0]
+            outputs['carr_phase'][block_index] = carr_phase[0]
             outputs['doppler'][block_index] = doppler
             
             # updating indices 
             target_code_phase = (block_index + 1) * block_length_chips
-            sample_step = int((target_code_phase - code_phase) * source_params['samp_rate'] / code_rate)
+            sample_step = int((target_code_phase - code_phase[0]) * source_params['samp_rate'] / code_rate)
             sample_index += sample_step
 
     for key in output_keys:
@@ -272,7 +274,8 @@ c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn,
 
 # Track
 outputs = track_GPS_L1CA_signal_open(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
-    N_integration_code_periods=N_integration_code_periods, epl_chip_spacing=epl_chip_spacing, signal_model = signalModel)
+    N_integration_code_periods=N_integration_code_periods, epl_chip_spacing=epl_chip_spacing, 
+    signal_model = signalModel, file_start_time_gpst=file_start_time_gpst)
 
 output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OL.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)
