@@ -6,7 +6,6 @@ from utilities.hdf5_utils import read_hdf5_into_dict
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-
 #%% Loading the data and preparing the workspace
 output_dir = './tracking-output/'
 filenames = sorted(os.listdir(output_dir))
@@ -36,7 +35,10 @@ if (recordFig):
         print("The figure directory for this combination already exists. This will re-create the figures in your environment," 
               " but will not save them, as they likely already exist in the folder.")
 
-#%% Plotting the early, late, and prompt correlator results
+
+totTime= outputs[i]['time'][-1]
+maxTime = totTime / 12
+#%% Plotting the early, late, and prompt correlator results across I and Q
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
@@ -52,7 +54,7 @@ ax2.scatter(outputs[i]['time'], outputs[i]['prompt'].imag, s=1, color='b')
 ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
     ax.grid()
-    ax.set_xlim(0, 10)
+    ax.set_xlim(0, maxTime)
     ax.set_ylim(-ylim, ylim)
 ax1.set_ylabel('I')
 ax2.set_ylabel('Q')
@@ -111,15 +113,16 @@ axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
 
 ax1.scatter(outputs[i]['time'], outputs[i]['unfiltered_code_phase'] - code_phase_trend, s=1, color='b', label='Measured')
+ax1.scatter(outputs[i]['time'], outputs[i]['filtered_code_phase'] - code_phase_trend, s=1, color='r', label='Filtered')
 ax1.set_ylabel('Detr. Code Phase [chips]')
 
-
 ax2.scatter(outputs[i]['time'], outputs[i]['unfiltered_carr_phase'] - carr_phase_trend, s=1, color='b', label='Measured')
+# ax2.scatter(outputs[i]['time'], outputs[i]['filtered_carr_phase'] - carr_phase_trend, s=1, color='r', label='Filtered')
 ax2.set_ylabel('Detr. Carrier Phase [cycles]')
 
 for ax in axes:
     ax.grid()
-    ax.set_xlim(0, 60)
+    ax.set_xlim(0, maxTime)
 ax1.legend(markerscale=10, loc=2, framealpha=1)
 ax1.set_xticklabels([])
 ax2.set_xlabel('Time [seconds]')
@@ -154,7 +157,7 @@ ax.set_ylabel('C/N0 [dB]')
 ax.set_xlabel('Time [seconds]')
 ax.grid()
 ylim = (numpy.abs(ax.get_ylim()))
-ax.set_xlim(0, 60)
+ax.set_xlim(0, maxTime)
 ax.set_ylim(ylim[0], ylim[1])
 txt_label = 'C/N0 Over Time \n G{0:02}: {1:02} ms, Open Loop'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
@@ -165,4 +168,3 @@ if(recordFig):
     plt.savefig(figName)
 
 plt.show()
-
