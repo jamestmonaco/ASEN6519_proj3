@@ -18,7 +18,7 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 0               # this is the file number (arbitrary) out of all output files
+i = 1               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
@@ -37,7 +37,7 @@ if (recordFig):
 
 
 totTime= outputs[i]['time'][-1]
-maxTime = totTime / 12
+maxTime = totTime
 #%% Plotting the early, late, and prompt correlator results across I and Q
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
@@ -104,7 +104,7 @@ ave_doppler = numpy.mean(outputs[i]['doppler'])
 adjusted_code_rate = L1CA_CODE_RATE * (1 + ave_doppler / L1CA_CARRIER_FREQ)
 code_phase_trend = elapsed_time * adjusted_code_rate
 
-residual_carr_phase = outputs[i]['unfiltered_carr_phase'] - elapsed_time * ave_doppler
+residual_carr_phase = outputs[i]['carr_phase'] - elapsed_time * ave_doppler
 carr_phase_trend = elapsed_time * ave_doppler + numpy.polyval(numpy.polyfit(elapsed_time, residual_carr_phase, 2), elapsed_time)
 
 # Plot the detrended code and carrier phases
@@ -112,12 +112,10 @@ fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
 
-ax1.scatter(outputs[i]['time'], outputs[i]['unfiltered_code_phase'] - code_phase_trend, s=1, color='b', label='Measured')
-ax1.scatter(outputs[i]['time'], outputs[i]['filtered_code_phase'] - code_phase_trend, s=1, color='r', label='Filtered')
+ax1.scatter(outputs[i]['time'], outputs[i]['code_phase'] - code_phase_trend, s=1, color='b', label='Measured')
 ax1.set_ylabel('Detr. Code Phase [chips]')
 
-ax2.scatter(outputs[i]['time'], outputs[i]['unfiltered_carr_phase'] - carr_phase_trend, s=1, color='b', label='Measured')
-# ax2.scatter(outputs[i]['time'], outputs[i]['filtered_carr_phase'] - carr_phase_trend, s=1, color='r', label='Filtered')
+ax2.scatter(outputs[i]['time'], outputs[i]['carr_phase'] - carr_phase_trend, s=1, color='b', label='Measured')
 ax2.set_ylabel('Detr. Carrier Phase [cycles]')
 
 for ax in axes:
