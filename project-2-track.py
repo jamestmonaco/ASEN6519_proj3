@@ -263,7 +263,7 @@ Slat,Slon,Salt = signalModel['sp_lat'][offset:,prn-1], signalModel['sp_lon'][off
 Rx, Ry, Rz = navData['Rx_X'], navData['Rx_Y'], navData['Rx_Z']
 Vx, Vy, Vz = navData['Rx_Vx'], navData['Rx_Vy'], navData['Rx_Vz']
 ClockDrift = navData['Rx_Clk_Drift']
-ClockBias = navData['Rx_Clk_Drift']
+ClockBias = navData['Rx_Clk_Bias']
 
 # Here we have a function to convert LLA coordinates to ECEF 
 ## Source: https://gis.stackexchange.com/questions/230160/converting-wgs84-to-ecef-in-python
@@ -277,12 +277,13 @@ def gps_to_ecef_pyproj(lat, lon, alt):
 # Converting/calculating values we need:
 Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
 GeoRange = numpy.sqrt((Sx-Rx)**2 + (Sy-Ry)**2 + (Sz-Rz)**2)
-Range = GeoRange - (ClockDrift * c)
+Range = GeoRange - (ClockBias * c) - ClockDrift
 
 # Finally calculating the models:
-tau_C = (tu - (abs(GeoRange - Range)/c) + signalModel['timeVec']) * fL1
+tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
 ## doppler_C = ## Unsure how to calculate velocity for the satellite here??
 
 #%% Plotting the models/difference:
+import scipy.stats as stats
 plt.plot(tau_C)
-
+plt.plot(signalModel['tau_D'][offset:,prn-1])
