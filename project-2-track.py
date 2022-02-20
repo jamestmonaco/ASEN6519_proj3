@@ -241,3 +241,48 @@ output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR.mat'.format(
 output_filepath = os.path.join(output_dir, output_filename)
 with h5py.File(output_filepath, 'w') as f:
     write_dict_to_hdf5(outputs, f)
+    
+#%% Loading in the navigation data to produce models:
+navData_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
+navData_in = loadmat(navData_filepath, squeeze_me=True)
+navData_keys = ['__header__', '__version__', '__globals__', 'Rx_Clk_Bias', 
+                'Rx_Clk_Drift', 'Rx_TimeStamp', 'Rx_Vx', 'Rx_Vy', 'Rx_Vz', 
+                'Rx_X', 'Rx_Y', 'Rx_Z', 'Rx_height', 'Rx_lat', 'Rx_lon']
+navData = {}  #{key: [0] for key in signalModel_keys}
+for keys in navData_keys:
+    navData[keys] = navData_in[keys]
+del navData_in
+
+#%% producing model:
+# Starting with constants
+c = 3e8 # m/s
+fL1 = 1.57542e9
+# Then getting variables we need from the appropriate files
+tu = navData['Rx_TimeStamp']
+Slat,Slon,Salt = signalModel['sp_lat'][offset:,prn-1], signalModel['sp_lon'][offset:,prn-1], signalModel['sp_mss'][offset:,prn-1]
+Rx, Ry, Rz = navData['Rx_X'], navData['Rx_Y'], navData['Rx_Z']
+Vx, Vy, Vz = navData['Rx_Vx'], navData['Rx_Vy'], navData['Rx_Vz']
+ClockDrift = navData['Rx_Clk_Drift']
+ClockBias = navData['Rx_Clk_Drift']
+
+# Here we have a function to convert LLA coordinates to ECEF 
+## Source: https://gis.stackexchange.com/questions/230160/converting-wgs84-to-ecef-in-python
+import pyproj
+def gps_to_ecef_pyproj(lat, lon, alt):
+    ecef = pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84')
+    lla = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
+    x, y, z = pyproj.transform(lla, ecef, lon, lat, alt, radians=False)
+    return x, y, z
+
+# Converting/calculating values we need:
+Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
+GeoRange = numpy.sqrt((Sx-Rx)**2 + (Sy-Ry)**2 + (Sz-Rz)**2)
+Range = GeoRange - (ClockDrift * c)
+
+# Finally calculating the models:
+tau_C = (tu - (abs(GeoRange - Range)/c) + signalModel['timeVec']) * fL1
+## doppler_C = ## Unsure how to calculate velocity for the satellite here??
+
+#%% Plotting the models/difference:
+plt.plot(tau_C)
+
