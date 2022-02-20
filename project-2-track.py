@@ -219,8 +219,8 @@ model_time = numpy.arange(0,60-0.001,0.001)
  
 nominal_code_phase = model_time * L1CA_CODE_RATE
 
-model_doppler = signalModel['doppler_D'][offset:,prn-1]
-model_code_phase = signalModel['tau_D'][offset:,prn-1] + nominal_code_phase
+model_doppler = signalModel['doppler_R'][offset:,prn-1]
+model_code_phase = signalModel['tau_R'][offset:,prn-1] + nominal_code_phase
 
 # The following variables are chosen by us (Brenna and James)
 N_integration_code_periods = 1
@@ -236,7 +236,7 @@ epl_chip_spacing = 0.5
 # Track
 outputs = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler)
 
-output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OL.mat'.format(
+output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)
 output_filepath = os.path.join(output_dir, output_filename)
 with h5py.File(output_filepath, 'w') as f:
