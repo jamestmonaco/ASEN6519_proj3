@@ -22,7 +22,7 @@ i = 1               # this is the file number (arbitrary) out of all output file
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
-fileName = 'G{0:02}_{1:02}ms_OL'.format(
+fileName = 'G{0:02}_{1:02}ms_OLR'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
 figuresDir = figuresDir_all+ fileName + '/'
 
@@ -37,7 +37,7 @@ if (recordFig):
 
 
 totTime= outputs[i]['time'][-1]
-maxTime = totTime
+maxTime = 10
 #%% Plotting the early, late, and prompt correlator results across I and Q
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
