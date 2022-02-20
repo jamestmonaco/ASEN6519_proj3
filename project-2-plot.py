@@ -166,3 +166,20 @@ if(recordFig):
     plt.savefig(figName)
 
 plt.show()
+
+#%% unwrapping the phase
+
+prompt = outputs[i]['prompt']
+
+phase = numpy.arctan(prompt.imag / prompt.real) 
+phase = numpy.unwrap(phase*2) / 2 
+# data_bits = numpy.arctan(prompt.imag / prompt.real) - numpy.angle(prompt)
+
+fig = plt.figure(figsize=(10, 3), dpi=200)
+ax = fig.add_subplot(111)
+ax.set_xlim(0,60)
+
+indices = [i]
+ax.scatter(outputs[i]['time'], phase, s=1, color=color, label='Measured')
+
+plt.show()
