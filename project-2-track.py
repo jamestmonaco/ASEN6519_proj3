@@ -261,8 +261,20 @@ fL1 = 1.57542e9
 tu = navData['Rx_TimeStamp']
 Slat,Slon,Salt = signalModel['sp_lat'][offset:,prn-1], signalModel['sp_lon'][offset:,prn-1], signalModel['sp_mss'][offset:,prn-1]
 Rx, Ry, Rz = navData['Rx_X'], navData['Rx_Y'], navData['Rx_Z']
+# Doing linear fits on the receiver location values so they're not as noisy:
+### Starting with Rx
+x_lin = numpy.array([stats.linregress(tu,Rx).slope,stats.linregress(tu,Rx).intercept])
+Rx_lin = x_lin[0]*tu+x_lin[1]
+y_lin = numpy.array([stats.linregress(tu,Ry).slope,stats.linregress(tu,Ry).intercept])
+Ry_lin = y_lin[0]*tu+y_lin[1]
+z_lin = numpy.array([stats.linregress(tu,Rz).slope,stats.linregress(tu,Rz).intercept])
+Rz_lin = z_lin[0]*tu+z_lin[1]
+
 Vx, Vy, Vz = navData['Rx_Vx'], navData['Rx_Vy'], navData['Rx_Vz']
 ClockDrift = navData['Rx_Clk_Drift']
+# Linear fitting the drift because the values are kinda strange:
+d_lin = numpy.array([stats.linregress(tu,ClockDrift).slope,stats.linregress(tu,ClockDrift).intercept])
+CD_lin = d_lin[0]*tu+d_lin[1]
 ClockBias = navData['Rx_Clk_Bias']
 
 # Here we have a function to convert LLA coordinates to ECEF 
@@ -276,8 +288,8 @@ def gps_to_ecef_pyproj(lat, lon, alt):
 
 # Converting/calculating values we need:
 Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
-GeoRange = numpy.sqrt((Sx-Rx)**2 + (Sy-Ry)**2 + (Sz-Rz)**2)
-Range = GeoRange - (ClockBias * c) - ClockDrift
+GeoRange = numpy.sqrt((Sx-Rx_lin)**2 + (Sy-Ry_lin)**2 + (Sz-Rz_lin)**2)
+Range = GeoRange - (ClockBias * c) - CD_lin
 
 # Finally calculating the models:
 tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
@@ -287,3 +299,13 @@ tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
 import scipy.stats as stats
 plt.plot(tau_C)
 plt.plot(signalModel['tau_D'][offset:,prn-1])
+
+#%% Testing my linear regression code because shit doesn't seem to be working rn
+t = tu
+A = Rz
+b_lin = numpy.array([stats.linregress(t,A).slope,stats.linregress(t,A).intercept])
+plt.plot(t,b_lin[0]*t+b_lin[1],c='red',zorder=2,alpha=0.75,label="Linear trend")
+plt.plot(tu,Rz)
+
+
+
