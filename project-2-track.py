@@ -233,7 +233,7 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
     return outputs
 
 #%% track_GPS_L1CA_signal_open function
-def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=False, **kwargs):
+def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=False, quadrant=2, closed_correlator=None, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -352,11 +352,16 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             early, late, prompt = epl_correlations # result of the correlation
              
             ### TASK 2 ###
-            # Use the closed-loop tracking function to get correlator outputs:
+            # Subtracting out navigation data bits:
             if task2 == True:
-                early = numpy.abs(early)
-                prompt = numpy.abs(prompt)
-                late = numpy.abs(late)
+                if quadrant == 2:
+                    costas = numpy.arctan(closed_correlator.real / closed_correlator.imag)
+                elif quadrant == 4:
+                    costas = numpy.arctan2(closed_correlator.real, closed_correlator.imag)
+                bits = (costas - numpy.angle(closed_correlator)) / (2 * pi) # so they are unitless
+                early = early * bits
+                prompt = prompt * bits
+                late = late * bits
             
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
@@ -488,10 +493,14 @@ os.makedirs(output_dir, exist_ok=True)
 epl_chip_spacing = 0.5
 
 # Acquire
-# c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
+c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
 
 # Track
-outputs_2 = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=True)
+outputs_c = track_GPS_L1CA_signal_closed(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
+                                         N_integration_code_periods=N_integration_code_periods,
+                                         DLL_bandwidth=5, PLL_bandwidth=20, epl_chip_spacing=epl_chip_spacing)
+prompt_c = outputs_c['prompt']
+outputs_2 = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=True, quadrant=2, closed_correlator=prompt_c)
 
 output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)
