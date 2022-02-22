@@ -500,7 +500,7 @@ epl_chip_spacing = 0.5
 # c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
 
 # Track
-outputs_o = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler)
+outputs_o = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=True)
 
 output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)

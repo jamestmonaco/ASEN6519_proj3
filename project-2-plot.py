@@ -18,11 +18,11 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 0               # this is the file number (arbitrary) out of all output files
+i = 2               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
-fileName = 'G{0:02}_{1:02}ms_OL'.format(
+fileName = 'G{0:02}_{1:02}ms_OLR'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
 figuresDir = figuresDir_all+ fileName + '/'
 
