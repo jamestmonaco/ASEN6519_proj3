@@ -13,7 +13,7 @@ from scipy.io import loadmat
 import scipy.stats as stats
 
 #%% track_GPS_L1CA_signal_closed function
-def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, task2=False **kwargs):
+def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phase_acq, doppler_acq, **kwargs):
     '''
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -23,7 +23,6 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
         `acq_sample_index` -- the index of the sample corresponding to the acquired signal parameters
         `code_phase_acq` -- acquired signal code phase in chips
         `doppler_acq` -- acquired signal Doppler frequency in Hz
-        `task2` -- indication of whether or not to remove data bits using closed-loop tracking
         
         `N_integration_code_periods` -- number of code periods (default 1) over which to coherently integrate when tracking
         `epl_chip_spacing` -- spacing of the EPL correlators in units of chips (default 0.5)
@@ -230,7 +229,7 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
     return outputs
 
 #%% track_GPS_L1CA_signal_open function
-def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, **kwargs):
+def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=False, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -244,6 +243,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
 
         NEW inputs required for open-loop aquisition: 
             'signal_model' -- a dict containing a pre-computed model of the signal
+            `task2` -- indication of whether or not to remove data bits using closed-loop tracking
             ** NOT NEEDED? ** 'nav_soln' -- a dict containing the navigation soln, rx/tx timestamps, ECEF coords, drift, etc        
 
         OLD closed-loop inputs that are NOT NEEDED for open-loop aquisition: 
@@ -480,27 +480,7 @@ with h5py.File(output_filepath, 'w') as f:
     write_dict_to_hdf5(outputs_o, f)
   
 #%% TASK 2 CODE
-# Loading the closed-loop tracking results for task 2:
-DLL_BW = [5]  # (units: Hz)
-PLL_BW = [20] # (units: Hz)
-
-for DLL_bandwidth in DLL_BW:
-    for PLL_bandwidth in PLL_BW:
-        # Acquire
-        c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
-
-        # Track
-        outputs_c = track_GPS_L1CA_signal_closed(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
-            N_integration_code_periods=N_integration_code_periods,
-            DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, epl_chip_spacing=epl_chip_spacing)
-
-        output_filename = 'PRN-{0:02}_N-int-{1:02}_DLL-BW-{2:02}_PLL-BW-{3:02}_chpWd-{4:02}.mat'.format(
-            prn, N_integration_code_periods, DLL_bandwidth, PLL_bandwidth,epl_chip_spacing)
-        output_filepath = os.path.join(output_dir, output_filename)
-        with h5py.File(output_filepath, 'w') as f:
-            write_dict_to_hdf5(outputs_c, f)
-            
-# Loading the reflected signal for task 2 as well for this same cell
+# Loading the reflected signal for task 2
 model_time = numpy.arange(0,60-0.001,0.001)
  
 nominal_code_phase = model_time * L1CA_CODE_RATE
