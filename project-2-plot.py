@@ -18,7 +18,7 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 1               # this is the file number (arbitrary) out of all output files
+i = 0               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
@@ -37,7 +37,7 @@ if (recordFig):
 
 
 totTime= outputs[i]['time'][-1]
-maxTime = 10
+maxTime = totTime
 #%% Plotting the early, late, and prompt correlator results across I and Q
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
