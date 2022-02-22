@@ -219,6 +219,10 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
     outputs['prn'] = prn
+    ### getting correlator magnitudes for open-loop data bits ###
+    outputs['early'] = early
+    outputs['prompt'] = prompt
+    outputs['late'] = late
     outputs['DLL_bandwidth'] = DLL_bandwidth
     outputs['PLL_bandwidth'] = PLL_bandwidth
     outputs['N_integration_code_periods'] = N_integration_code_periods
@@ -347,6 +351,29 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
                epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                # performing the correlation
             early, late, prompt = epl_correlations # result of the correlation
              
+            ### TASK 2 ###
+            # Use the closed-loop tracking function to get correlator outputs:
+            if task2 == True:
+                DLL_bandwidth = 5 # (units: Hz)
+                PLL_bandwidth = 20 # (units: Hz)
+                # Acquire
+                c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(
+                            data_filepath, source_params, prn, 0)
+                # Track
+                outputs_c = track_GPS_L1CA_signal_closed(prn, 
+                                source_params, 0, n_acq['code_phase'], f_acq['doppler'],
+                                N_integration_code_periods=N_integration_code_periods,
+                                DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, epl_chip_spacing=epl_chip_spacing)
+                # get sign of correlator outputs:
+                sign_e = numpy.sign(outputs_c['early'])
+                sign_p = numpy.sign(outputs_c['prompt'])
+                sign_l = numpy.sign(outputs_c['late'])
+                # Then multiply with correlator outputs from open-loop tracking
+                ## in order to remove data bits:
+                early = early * sign_e
+                prompt = prompt * sign_p
+                late = late * sign_l
+            
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
             code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
@@ -357,27 +384,6 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
                 time_step = model_time[block_index + 1] - model_time[block_index]
                 carr_phase += (inter_freq + doppler) * time_step 
             
-            ### TASK 2 ###
-            # Use the closed-loop tracking function to get correlator outputs:
-            if task2 == True:
-                DLL_BW = [5]  # (units: Hz)
-                PLL_BW = [20] # (units: Hz)
-                for DLL_bandwidth in DLL_BW:
-                    for PLL_bandwidth in PLL_BW:
-                        # Acquire
-                        c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(
-                            data_filepath, source_params, prn, 0)
-                        # Track
-                        outputs_c = track_GPS_L1CA_signal_closed(prn, 
-                                    source_params, 0, n_acq['code_phase'], f_acq['doppler'],
-                                    N_integration_code_periods=N_integration_code_periods,
-                                    DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, epl_chip_spacing=epl_chip_spacing)
-                # get sign of correlator outputs:
-                sign = numpy.sign(outputs_c)
-                # Then multiply with correlator outputs from open-loop tracking
-                ## in order to remove data bits:
-                epl_correlators = np.array(epl_correlations) * sign
-                    
             # 5. Save our tracking loop outputs
             outputs['sample_index'][block_index] = sample_index
             outputs['early'][block_index] = early
@@ -396,6 +402,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     outputs['integration_time'] = integration_time
     outputs['time'] = outputs['sample_index'] / source_params['samp_rate']
     outputs['epl_chip_spacing'] = epl_chip_spacing 
+    ### saving the discriminator to plot I guess?
     
     return outputs
 
@@ -554,23 +561,18 @@ def gps_to_ecef_pyproj(lat, lon, alt):
 
 # Converting/calculating values we need:
 Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
-GeoRange = numpy.sqrt((Sx-Rx_lin)**2 + (Sy-Ry_lin)**2 + (Sz-Rz_lin)**2)
-Range = GeoRange - (ClockBias * c) - CD_lin
+GeoRange = numpy.sqrt((Sx-Rx_lin)**2 + (Sy-Ry_lin)**2 - (Sz-Rz_lin)**2)
+Range = GeoRange - (CD_lin * c) - ClockBias
 
 # Finally calculating the models:
 tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
 ## doppler_C = ## Unsure how to calculate velocity for the satellite here??
 
 #%% Plotting the models/difference:
+plt.plot(signalModel['tau_D'][offset:,prn-1])
 plt.plot(tau_C)
 plt.plot(signalModel['tau_D'][offset:,prn-1])
 
-#%% Testing my linear regression code because shit doesn't seem to be working rn
-t = tu
-A = Rz
-b_lin = numpy.array([stats.linregress(t,A).slope,stats.linregress(t,A).intercept])
-plt.plot(t,b_lin[0]*t+b_lin[1],c='red',zorder=2,alpha=0.75,label="Linear trend")
-plt.plot(tu,Rz)
 
 
 
