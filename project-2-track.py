@@ -354,26 +354,9 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             ### TASK 2 ###
             # Use the closed-loop tracking function to get correlator outputs:
             if task2 == True:
-                DLL_bandwidth = 5 # (units: Hz)
-                PLL_bandwidth = 20 # (units: Hz)
-                # Acquire
-                c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(
-                            data_filepath, source_params, prn, 0)
-                # Track
-                outputs_c = track_GPS_L1CA_signal_closed(prn, 
-                                source_params, 0, n_acq['code_phase'], f_acq['doppler'],
-                                N_integration_code_periods=N_integration_code_periods,
-                                DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, 
-                                epl_chip_spacing=epl_chip_spacing)
-                # get sign of correlator outputs:
-                sign_e = numpy.sign(outputs_c['early'])
-                sign_p = numpy.sign(outputs_c['prompt'])
-                sign_l = numpy.sign(outputs_c['late'])
-                # Then multiply with correlator outputs from open-loop tracking
-                ## in order to remove data bits:
-                early = early * sign_e
-                prompt = prompt * sign_p
-                late = late * sign_l
+                early = numpy.abs(early)
+                prompt = numpy.abs(prompt)
+                late = numpy.abs(late)
             
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
@@ -567,12 +550,10 @@ Range = GeoRange - (CD_lin * c) - ClockBias
 
 # Finally calculating the models:
 tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
-## doppler_C = ## Unsure how to calculate velocity for the satellite here??
+doppler_C = numpy.diff(Range) * fL1 / c
 
 #%% Plotting the models/difference:
-plt.plot(signalModel['tau_D'][offset:,prn-1])
-plt.plot(tau_C)
-plt.plot(signalModel['tau_D'][offset:,prn-1])
+plt.plot(doppler_C)
 
 
 
