@@ -363,7 +363,8 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
                 outputs_c = track_GPS_L1CA_signal_closed(prn, 
                                 source_params, 0, n_acq['code_phase'], f_acq['doppler'],
                                 N_integration_code_periods=N_integration_code_periods,
-                                DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, epl_chip_spacing=epl_chip_spacing)
+                                DLL_bandwidth=DLL_bandwidth, PLL_bandwidth=PLL_bandwidth, 
+                                epl_chip_spacing=epl_chip_spacing)
                 # get sign of correlator outputs:
                 sign_e = numpy.sign(outputs_c['early'])
                 sign_p = numpy.sign(outputs_c['prompt'])
@@ -507,13 +508,13 @@ epl_chip_spacing = 0.5
 # c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn, 0)
 
 # Track
-outputs_o = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=True)
+outputs_2 = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, task2=True)
 
 output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)
 output_filepath = os.path.join(output_dir, output_filename)
 with h5py.File(output_filepath, 'w') as f:
-    write_dict_to_hdf5(outputs_o, f)
+    write_dict_to_hdf5(outputs_2, f)
 
 #%% Loading in the navigation data to produce models:
 navData_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
