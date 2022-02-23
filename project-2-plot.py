@@ -18,7 +18,7 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 1               # this is the file number (arbitrary) out of all output files
+i = 5               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'

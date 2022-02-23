@@ -404,7 +404,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
     outputs['prn'] = prn
-    outputs['discriminator'] = np.array(disc)
+    outputs['discriminator'] = numpy.array(disc)
     outputs['N_integration_code_periods'] = N_integration_code_periods
     outputs['integration_time'] = integration_time
     outputs['time'] = outputs['sample_index'] / source_params['samp_rate']
@@ -519,10 +519,10 @@ outputs_c = track_GPS_L1CA_signal_closed(prn, source_params, 0, n_acq['code_phas
                                          DLL_bandwidth=5, PLL_bandwidth=20, epl_chip_spacing=epl_chip_spacing)
 prompt_c = outputs_c['prompt']
 outputs_2 = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, 
-                                       task2=True, quadrant=4, closed_correlator=prompt_c)
+                                       task2=True, quadrant=2, closed_correlator=prompt_c)
                                         ### Change quadrant depending on task 2 desired output ###
 
-output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR_Q4.mat'.format(
+output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR_Q2.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)
 output_filepath = os.path.join(output_dir, output_filename)
 with h5py.File(output_filepath, 'w') as f:
@@ -582,6 +582,7 @@ tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
 doppler_C = numpy.diff(Range) * fL1 / c
 
 #%% Plotting the models/difference:
+import matplotlib.pyplot as plt
 plt.plot(doppler_C)
 
 
