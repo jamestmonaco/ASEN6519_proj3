@@ -18,12 +18,12 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 5               # this is the file number (arbitrary) out of all output files
+i = 1               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
-fileName = 'G{0:02}_{1:02}ms_OLR'.format(
-    outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
+fileName = 'G{0:02}_{1:02}ms_OLR_Q2'.format(
+    outputs[i]['prn'], 1000 * outputs[i]['integration_time']) ## I changed the output file name depending on the task
 figuresDir = figuresDir_all+ fileName + '/'
 
 if (recordFig): 
@@ -165,6 +165,30 @@ if(recordFig):
     figName = figuresDir + 'CNR_' + fileName + '.png'
     plt.savefig(figName)
 
+plt.show()
+
+#%% Plotting discriminator for 2 or 4 quadrants as indicated above:
+disc = outputs[i]['discriminator']
+
+fig = plt.figure(figsize=(10,3), dpi=200)
+ax = fig.add_subplot(111)
+
+ax.scatter(outputs[i]['time'], disc, c='green', s=1)
+
+ax.set_ylabel('C/N0 [dB]')
+ax.set_xlabel('Time [seconds]')
+ax.grid()
+ylim = (numpy.abs(ax.get_ylim()))
+ax.set_xlim(0, maxTime)
+ax.set_ylim(ylim[0], ylim[1])
+txt_label = '2-Quadrant Costas Discriminator Over Time \n G{0:02}: {1:02} ms, Open Loop'.format(
+    outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
+ax.set_title(txt_label)
+
+if(recordFig):
+    figName = figuresDir + 'disc_' + fileName + '.png'
+    plt.savefig(figName)
+    
 plt.show()
 
 #%% unwrapping the phase
