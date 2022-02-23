@@ -65,6 +65,7 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
     N_block_samples = int(integration_time * source_params['samp_rate'])
     block_time = arange(N_block_samples) / source_params['samp_rate']
     N_blocks = source_params['file_length'] // N_block_samples
+    
 
     # The EPL correlation delay spacing controls the sensitivity of the DLL to noise vs. multipath.
     # EPL stands for early, prompt, and late (correlators)
@@ -211,9 +212,10 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
             code_rate = L1CA_CODE_RATE * (1 + doppler / L1CA_CARRIER_FREQ)
             
             # First we adjust the nominal time step to go to start of next desired chip
-            target_code_phase = (block_index + 1) * block_length_chips
-            sample_step = int((target_code_phase - filtered_code_phase) * source_params['samp_rate'] / code_rate)
-            time_step = sample_step / source_params['samp_rate']
+            if block_index+1 < N_blocks:
+                target_code_phase = (block_index + 1) * block_length_chips
+                sample_step = int((target_code_phase - filtered_code_phase) * source_params['samp_rate'] / code_rate)
+                time_step = sample_step / source_params['samp_rate']
             
             # Then we update the states and sample index accordingly
             code_phase = filtered_code_phase + code_rate * time_step
@@ -292,7 +294,8 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     N_block_samples = int(integration_time * source_params['samp_rate']) # number of samples per block
     sample_time = arange(N_block_samples) / source_params['samp_rate']
     N_blocks = len(model_time)
-#    N_blocks = source_params['file_length'] // N_block_samples
+    if task2 == True:
+        N_blocks = len(closed_correlator)
 
     
      # The EPL correlation delay spacing controls the sensitivity of the DLL to noise vs. multipath.
@@ -317,6 +320,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     carr_phase = 0
     
     # Open the IF sample file
+    disc = []
     with open(source_params['filepath'], 'rb') as f:
         for block_index in range(N_blocks):
             sample_index = round(model_time[block_index] * source_params['samp_rate'])
@@ -362,7 +366,6 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             ### TASK 2 ###
             # Subtracting out navigation data bits:
             costas = nan
-            bits = nan
             if task2 == True:
                 if quadrant == 2:
                     costas = numpy.arctan(closed_correlator[block_index].real / closed_correlator[block_index].imag)
@@ -371,11 +374,11 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
                 else:
                     print("Something's wrong with the discriminator input dawg idk")
                     print(costas)
-                bit = (costas - numpy.angle(closed_correlator[block_index]))
-
+                bit = (costas - numpy.angle(closed_correlator[block_index])) / (2 * pi)
                 early = early * bit
                 prompt = prompt * bit
                 late = late * bit
+                disc.append(costas)
             
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
@@ -383,7 +386,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             unfiltered_code_phase = code_phase + code_phase_error
             
             # carrier phase calculation
-            if (block_index < N_blocks):
+            if (block_index+1 < N_blocks):
                 time_step = model_time[block_index + 1] - model_time[block_index]
                 carr_phase += (inter_freq + doppler) * time_step 
             
@@ -401,7 +404,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
     outputs['prn'] = prn
-    outputs['discriminator'] = costas
+    outputs['discriminator'] = np.array(disc)
     outputs['N_integration_code_periods'] = N_integration_code_periods
     outputs['integration_time'] = integration_time
     outputs['time'] = outputs['sample_index'] / source_params['samp_rate']
