@@ -574,16 +574,25 @@ def gps_to_ecef_pyproj(lat, lon, alt):
 
 # Converting/calculating values we need:
 Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
-GeoRange = numpy.sqrt((Sx-Rx_lin)**2 + (Sy-Ry_lin)**2 - (Sz-Rz_lin)**2)
-Range = GeoRange - (CD_lin * c) - ClockBias
+GeoRange = numpy.sqrt((Sx - Rx_lin)**2 + (Sy - Ry_lin)**2 + (Sz - Rz_lin)**2)
+Range = GeoRange - (ClockBias * c) - CD_lin
 
 # Finally calculating the models:
-tau_C = (signalModel['timeVec'] - (abs(GeoRange - Range)/c) - tu) * fL1
-doppler_C = numpy.diff(Range) * fL1 / c
+tau_C = (tu - (abs(GeoRange)/c) + signalModel['timeVec'])
+doppler_C = numpy.diff(Range) * 2 * pi * fL1 / c
 
 #%% Plotting the models/difference:
 import matplotlib.pyplot as plt
-plt.plot(doppler_C)
+plt.scatter(tu[:-1],doppler_C,s=1)
+plt.plot(tu,signalModel['doppler_D'][offset:,prn-1],c='red')
+#plt.xlim(10000,60000)
+
+#%% Prepping for the challenge question by loading in the data file:
+DTU18_filepath = './Data/dtu18.mat'
+DTU18 = loadmat(DTU18_filepath, squeeze_me=True)['dtu18']
+DTU18_lon = DTU18['lon']
+DTU18_lat = DTU18['lat']
+DTU18_mss = DTU18['mss']
 
 
 
