@@ -6,6 +6,8 @@ from utilities.hdf5_utils import read_hdf5_into_dict
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
+from numpy import pi
+
 #%% Loading the data and preparing the workspace
 output_dir = './tracking-output/'
 filenames = sorted(os.listdir(output_dir))
@@ -18,7 +20,7 @@ for filename in filenames:
 print('\n'.join(['{0: >2}: {1}'.format(i, fn) for i, fn in enumerate(filenames)]))
 
 #%% Preparing the workspace
-i = 1               # this is the file number (arbitrary) out of all output files
+i = 0               # this is the file number (arbitrary) out of all output files
 recordFig = True    # deciding whether to save these figures or not
 
 figuresDir_all = './figures/'
@@ -37,8 +39,9 @@ if (recordFig):
 
 
 totTime= outputs[i]['time'][-1]
-maxTime = 10
+maxTime = 5
 #%% Plotting the early, late, and prompt correlator results across I and Q
+# (navigation bits are INCLUDED)
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
@@ -54,14 +57,14 @@ ax2.scatter(outputs[i]['time'], outputs[i]['prompt'].imag, s=1, color='b')
 ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
     ax.grid()
-    ax.set_xlim(0, maxTime)
     ax.set_ylim(-ylim, ylim)
+    ax.set_xlim(0, maxTime)
 ax1.set_ylabel('I')
 ax2.set_ylabel('Q')
 ax2.set_xlabel('Time [seconds]')
 ax1.set_xticklabels([])
 ax1.legend(markerscale=10, loc=2, framealpha=1)
-txt_label = 'Correlation Values Across IQ channels\n G{0:02}: {1:02} ms, Open Loop'.format(
+txt_label = 'Correlation Values Across IQ channels\n G{0:02}: {1:02} ms, Open Loop, with navigation bits'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
 ax1.set_title(txt_label)
 
@@ -69,6 +72,30 @@ if(recordFig):
     figName = figuresDir + 'corrVal_' + fileName + '.png'
     plt.savefig(figName)
 
+plt.show()
+
+#%% Plotting navigation bits
+fig = plt.figure(figsize=(10, 6), dpi=200)
+ax = fig.add_subplot(111)
+
+ax.scatter(outputs[i]['time'], abs(outputs[i]['nav_bits_q2']), s=1, color='b', label='2-Quad. Disc.')
+ax.scatter(outputs[i]['time'], abs(outputs[i]['nav_bits_q4']), s=1, color='r', label='4-Quad. Disc.')
+
+ax.grid()
+ax.set_ylim(-0.25, 1.25)
+ax.set_xlim(0, maxTime)
+ax.set_ylabel('Navigation Bits [boolean]')
+ax.set_xlabel('Time [seconds]')
+ax.set_xticklabels([])
+ax.legend(markerscale=10, loc=2, framealpha=1)
+txt_label = 'Navigation Bits \n G{0:02}: {1:02} ms, Open Loop'.format(
+    outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
+ax.set_title(txt_label)
+
+if(recordFig):
+    figName = figuresDir + 'corrMag_' + fileName + '.png'
+    plt.savefig(figName)
+    
 plt.show()
 
 #%% Plotting correlation magnitude
@@ -82,6 +109,7 @@ ax.scatter(outputs[i]['time'], abs(outputs[i]['late']), s=1, color='r', label='L
 ylim = max(numpy.abs(ax.get_ylim()))
 ax.grid()
 ax.set_ylim(0, ylim)
+ax.set_xlim(0, maxTime)
 ax.set_ylabel('IQ Magnitude')
 ax.set_xlabel('Time [seconds]')
 ax.set_xticklabels([])
@@ -96,8 +124,9 @@ if(recordFig):
     
 plt.show()
 
-#%% Compute code and carrier phase trends
+#%% Plotting Detrended code and carrier phase
 
+# Compute code and carrier phase trends
 elapsed_time = outputs[i]['time'] - outputs[i]['time'][0]
 ave_doppler = numpy.mean(outputs[i]['doppler'])
 
@@ -168,7 +197,7 @@ if(recordFig):
 plt.show()
 
 #%% Plotting discriminator for 2 or 4 quadrants as indicated above:
-disc = outputs[i]['discriminator']
+disc = outputs[i]['disc_q2']
 
 fig = plt.figure(figsize=(10,4), dpi=200)
 ax = fig.add_subplot(111)
@@ -190,18 +219,34 @@ if(recordFig):
 plt.show()
 
 #%% unwrapping the phase
-
 prompt = outputs[i]['prompt']
+phase_q2 = numpy.unwrap(outputs[i]['disc_q2'] *2) / 2 / (2 * pi) * 360
+phase_q4 = numpy.unwrap(outputs[i]['disc_q4'] *2) / 2 / (2 * pi) * 360
 
-phase = numpy.arctan(prompt.imag / prompt.real) 
-phase = numpy.unwrap(phase*2) / 2 
-# data_bits = numpy.arctan(prompt.imag / prompt.real) - numpy.angle(prompt)
 
-fig = plt.figure(figsize=(10, 3), dpi=200)
-ax = fig.add_subplot(111)
-ax.set_xlim(0,60)
+fig = plt.figure(figsize=(10, 6), dpi=200)
+axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
+ax1, ax2 = axes
 
-indices = [i]
-ax.scatter(outputs[i]['time'], phase, s=1, color=color, label='Measured')
+ax1.scatter(outputs[i]['time'], phase_q2, s=1, color='b', label='2-quad. disc.')
+ax2.scatter(outputs[i]['time'], phase_q4, s=1, color='b', label='4-quad. disc.')
+
+for ax in axes:
+    ax.grid()
+    ax.set_xlim(0, maxTime)
+ax1.set_ylabel('Phase [deg]')
+ax2.set_ylabel('Phase [deg]')
+ax2.set_xlabel('Time [seconds]')
+ax1.set_xticklabels([])
+ax1.legend(markerscale=10, loc=2, framealpha=1)
+
+ax2.legend(markerscale=10, loc=2, framealpha=1)
+txt_label = 'Unwrapped Phase with 2 and 4 quad. Discriminators \n G{0:02}: {1:02} ms, Open Loop'.format(
+    outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
+ax1.set_title(txt_label)
+
+if(recordFig):
+    figName = figuresDir + 'phaseUnwrapped_' + fileName + '.png'
+    plt.savefig(figName)
 
 plt.show()
