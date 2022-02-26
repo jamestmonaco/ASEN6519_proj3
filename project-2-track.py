@@ -452,7 +452,7 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     
     return outputs
 
-#%% Loading the signal model, navigation solution, and DTU18 MSS model.
+#%% Loading the signal model
 # loading signal model
 signalModel_filepath = './Data/haleakala_20210611_160000_RX7_signal_model.mat'
 signalModel_in = loadmat(signalModel_filepath, squeeze_me=True)
@@ -464,10 +464,6 @@ for keys in signalModel_keys:
     signalModel[keys] = signalModel_in[keys]
 del signalModel_in
 
-# please don't load DTU18. It is very large. 
-# DTU18_filepath = './Data/dtu18.mat'
-# DTU18 = loadmat(DTU18_filepath)
-    
 #%% Choose IF data file and appropriate data parameters
 data_filepath = './Data/haleakala_20210611_160000_RX7.dat'
 
@@ -492,9 +488,6 @@ file_start_time_gpst = dt2gpst(file_start_time_dt)
 prn = 5
 offset = 0
 
-# model data
-# model_time = signalModel['timeVec'] - signalModel['timeVec'][0]
-# model_time =  model_time[offset:]
 model_time = numpy.arange(0,60-0.001,0.001) 
 nominal_code_phase = model_time * L1CA_CODE_RATE
 model_doppler = signalModel['doppler_D'][offset:,prn-1]
@@ -524,70 +517,3 @@ output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR_Q2.mat'.format(
 output_filepath = os.path.join(output_dir, output_filename)
 with h5py.File(output_filepath, 'w') as f:
     write_dict_to_hdf5(outputs_o, f)
-
-#%% Loading in the navigation data to produce models:
-navData_filepath = './Data/haleakala_20210611_160000_RX7_nav.mat'
-navData_in = loadmat(navData_filepath, squeeze_me=True)
-navData_keys = ['__header__', '__version__', '__globals__', 'Rx_Clk_Bias', 
-                'Rx_Clk_Drift', 'Rx_TimeStamp', 'Rx_Vx', 'Rx_Vy', 'Rx_Vz', 
-                'Rx_X', 'Rx_Y', 'Rx_Z', 'Rx_height', 'Rx_lat', 'Rx_lon']
-navData = {}  #{key: [0] for key in signalModel_keys}
-for keys in navData_keys:
-    navData[keys] = navData_in[keys]
-del navData_in
-
-#%% Producing model data
-
-# Starting with constants
-c = 3e8 # m/s
-fL1 = 1.57542e9
-# Then getting variables we need from the appropriate files
-tu = navData['Rx_TimeStamp']
-Slat,Slon,Salt = signalModel['sp_lat'][offset:,prn-1], signalModel['sp_lon'][offset:,prn-1], signalModel['sp_mss'][offset:,prn-1]
-Rx, Ry, Rz = navData['Rx_X'], navData['Rx_Y'], navData['Rx_Z']
-# Doing linear fits on the receiver location values so they're not as noisy:
-### Starting with Rx
-x_lin = numpy.array([stats.linregress(tu,Rx).slope,stats.linregress(tu,Rx).intercept])
-Rx_lin = x_lin[0]*tu+x_lin[1]
-y_lin = numpy.array([stats.linregress(tu,Ry).slope,stats.linregress(tu,Ry).intercept])
-Ry_lin = y_lin[0]*tu+y_lin[1]
-z_lin = numpy.array([stats.linregress(tu,Rz).slope,stats.linregress(tu,Rz).intercept])
-Rz_lin = z_lin[0]*tu+z_lin[1]
-
-Vx, Vy, Vz = navData['Rx_Vx'], navData['Rx_Vy'], navData['Rx_Vz']
-ClockDrift = navData['Rx_Clk_Drift']
-# Linear fitting the drift because the values are kinda strange:
-d_lin = numpy.array([stats.linregress(tu,ClockDrift).slope,stats.linregress(tu,ClockDrift).intercept])
-CD_lin = d_lin[0]*tu+d_lin[1]
-ClockBias = navData['Rx_Clk_Bias']
-
-# Here we have a function to convert LLA coordinates to ECEF 
-## Source: https://gis.stackexchange.com/questions/230160/converting-wgs84-to-ecef-in-python
-import pyproj
-def gps_to_ecef_pyproj(lat, lon, alt):
-    ecef = pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84')
-    lla = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
-    x, y, z = pyproj.transform(lla, ecef, lon, lat, alt, radians=False)
-    return x, y, z
-
-# Converting/calculating values we need:
-Sx, Sy, Sz = gps_to_ecef_pyproj(Slat, Slon, Salt)
-GeoRange = numpy.sqrt((Sx - Rx_lin)**2 + (Sy - Ry_lin)**2 + (Sz - Rz_lin)**2)
-Range = GeoRange - (ClockBias * c) - CD_lin
-
-# Finally calculating the models:
-tau_C = (tu - (abs(GeoRange)/c) + signalModel['timeVec'])
-doppler_C = numpy.diff(Range) * 2 * pi * fL1 / c
-
-#%% Plotting the models/difference:
-import matplotlib.pyplot as plt
-plt.scatter(tu[:-1],doppler_C,s=1)
-plt.plot(tu,signalModel['doppler_D'][offset:,prn-1],c='red')
-#plt.xlim(10000,60000)
-
-#%% Prepping for the challenge question by loading in the data file:
-DTU18_filepath = './Data/dtu18.mat'
-DTU18 = loadmat(DTU18_filepath, squeeze_me=True)['dtu18']
-DTU18_lon = DTU18['lon']
-DTU18_lat = DTU18['lat']
-DTU18_mss = DTU18['mss']
