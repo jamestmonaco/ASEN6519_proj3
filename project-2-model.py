@@ -97,22 +97,22 @@ ClockBias = navData['Rx_Clk_Bias']
 
 # Converting/calculating values we need:
 S_geo = geo2ecf(numpy.array([S_lat, S_lon, S_alt]))
-Sx, Sy, Sz = S_geo[:,0],S_geo[:,1], S_geo[:,2], 
+Sx, Sy, Sz = S_geo[:,0],S_geo[:,1], S_geo[:,2]
 GeoRange = numpy.sqrt((Sx - Rx_lin)**2 + (Sy - Ry_lin)**2 + (Sz - Rz_lin)**2)
 Range = GeoRange - (ClockBias * c) - CD_lin
 
 # Finally calculating the models:
 tau_C = (t_rx - (abs(GeoRange)/c) + signalModel['timeVec'])
-doppler_C = numpy.diff(Range) * 2 * pi * L1CA_CARRIER_FREQ / c
+doppler_C = (c ) / (c + numpy.diff(Range) ) * L1CA_CARRIER_FREQ - L1CA_CARRIER_FREQ  
 
 #%% Plotting the models/difference:
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
 
-ax1.scatter(t_rx[:-1], doppler_C, s=1, color='b', label='Generated doppler')
+ax1.scatter(t_rx[:-1] - t_rx[0], doppler_C, s=1, color='b', label='Generated doppler')
 
-ax2.scatter(t_rx,signalModel['doppler_D'][offset:,prn-1], s=1, color='r', label='Given doppler')
+ax2.scatter(t_rx - t_rx[0],signalModel['doppler_D'][offset:,prn-1], s=1, color='r', label='Given doppler')
 
 ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
