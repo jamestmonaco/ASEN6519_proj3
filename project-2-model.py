@@ -103,20 +103,23 @@ Range = GeoRange - (ClockBias * c) - CD_lin
 
 # Finally calculating the models:
 tau_C = (t_rx - (abs(GeoRange)/c) + signalModel['timeVec'])
-doppler_C = (c ) / (c + numpy.diff(Range) ) * L1CA_CARRIER_FREQ - L1CA_CARRIER_FREQ  
+doppler_C = (c) / (c - Range[1:] / numpy.diff(t_rx) ) # this isn't right, but shows some proportionality
+# doppler_C = (c) / (c - numpy.diff(Range) / numpy.diff(t_rx) ) # this is closer to right, but needs some filtering
 
 #%% Plotting the models/difference:
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
 
-ax1.scatter(t_rx[:-1] - t_rx[0], doppler_C, s=1, color='b', label='Generated doppler')
+ax1.scatter(t_rx[100:-1] - t_rx[0], doppler_C[100:] , s=1, color='b', label='Generated doppler')
+# ax1.scatter(t_rx - t_rx[0], Range, s=1, color='b', label='Generated doppler')
 
 ax2.scatter(t_rx - t_rx[0],signalModel['doppler_D'][offset:,prn-1], s=1, color='r', label='Given doppler')
 
 ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
     ax.grid()
+    # ax.set_ylim(-1815,-1800)
 ax1.set_ylabel('Doppler [Hz]')
 ax2.set_ylabel('Doppler [Hz]')
 ax2.set_xlabel('Time [seconds]')
