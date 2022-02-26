@@ -240,7 +240,7 @@ def track_GPS_L1CA_signal_closed(prn, source_params, acq_sample_index, code_phas
     return outputs
 
 #%% track_GPS_L1CA_signal_open function
-def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, closed_correlator=None, **kwargs):
+def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, outputs_c, **kwargs):
     '''    
     Given a PRN, acquires and tracks the corresponding GPS L1CA signal.
     
@@ -278,6 +278,15 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
                                  source_params['is_signed'], source_params['is_integer'],
                                  source_params['is_complex'], source_params['i_lsn'])
     
+    
+    # loading the required closed loop data
+    early_c = outputs_c['early']
+    late_c =  outputs_c['late']
+    prompt_c = outputs_c['prompt']
+    time_c = outputs_c['time']
+    
+    e, p, l = 0,1,2
+    
     # Here we define the "tracking block size" as an integer multiple of the L1CA code period.
     # Nominally, the tracking block size will be some multiple of 1 millisecond, and is equal to the
     # coherent integration time as well as the nominal tracking loop update time step.  Due to code
@@ -293,10 +302,14 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     N_block_samples = int(integration_time * source_params['samp_rate']) # number of samples per block
     sample_time = arange(N_block_samples) / source_params['samp_rate']
     N_blocks = len(model_time)
-    if type(closed_correlator) != 'NoneType':
-        N_blocks = len(closed_correlator)
 
-    
+    # sync in time
+    start_idx = 0
+    N_blocks = len(time_c)
+    print("\n doing part 2....")
+    start_idx = numpy.where( abs(model_time - time_c[0]) < 5e-5 )[0][-1]
+    model_time = model_time[start_idx:]
+        
     # The EPL correlation delay spacing controls the sensitivity of the DLL to noise vs. multipath.
     # EPL stands for early, prompt, and late (correlators)
     epl_chip_spacing = kwargs.get('epl_chip_spacing', 0.5)
@@ -305,11 +318,15 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     output_keys = ['sample_index', 'early', 'prompt', 'late',
                    'code_phase', 'unfiltered_code_phase',
                    'carr_phase','doppler', 
-                   'nav_bits', 
-                   'disc_q2', 'disc_q4','closed_corr']
+                   'nav_bits_e', 'nav_bits_l','nav_bits_p',
+                   'disc_q2', 'disc_q4',
+                   'e_idx','p_idx','l_idx']
     output_dtypes = [int, complex, complex, complex,
-                     float, float, float, float, 
-                     float, float, float, complex]
+                     float, float, 
+                     float, float, 
+                     float, float, float,
+                     float, float,
+                     int, int, int]   
     outputs = {key: numpy.zeros(N_blocks, dtype=dtype) for key, dtype in zip(output_keys, output_dtypes)}
 
     # Compute the intermediate frequency
@@ -320,7 +337,6 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
         
     # Open the IF sample file
     carr_phase = 0
-    disc = []
     with open(source_params['filepath'], 'rb') as f:
         for block_index in range(N_blocks):
             sample_index = round(model_time[block_index] * source_params['samp_rate'])
@@ -355,24 +371,47 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             #  Here we run a brief for-loop to obtain the early, late, and promt correlator outputs. 
             # could add flexibility of epl range AND step
             epl_correlations = []
-            epl_bits = []
-            for chip_delay in [epl_chip_spacing, -epl_chip_spacing, 0 ]:                                             # Early, prompt, and late correlator timing
-               # reference signal generation
-               chip_indices = (code_phase + chip_delay + code_rate * sample_time).astype(int) % L1CA_CODE_LENGTH    # indices of relevant chips in the sample
-               code_samples = 1 - 2 * code_seq[chip_indices]                                                       # Code samples, ranging from [-1,1]
-                                
-               epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                # performing the correlation
-            early, late, prompt = epl_correlations # result of the correlation
+            for chip_delay in epl_chip_spacing * (numpy.array([e, p, l]) - 1):                                             # Early, prompt, and late correlator timing
+                # reference signal generation
+                chip_indices = (code_phase + chip_delay + code_rate * sample_time).astype(int) % L1CA_CODE_LENGTH    # indices of relevant chips in the sample
+                code_samples = 1 - 2 * code_seq[chip_indices]                                                       # Code samples, ranging from [-1,1]
+               
+                # performing the correlation
+                epl_correlations.append(numpy.mean(block_wo_carrier * code_samples))                                
+               
+            # saving correlations
+            prompt = epl_correlations[p]
+            early = epl_correlations[e]
+            late = epl_correlations[l] 
             
             # Finding the navigation bits   
-            costas_q2 = (numpy.arctan(closed_correlator[block_index].imag / closed_correlator[block_index].real))
-            bits = round(abs(costas_q2/(pi/2)) - abs(numpy.angle(closed_correlator[block_index])/pi))
+            epl_correlations_c = [[early_c[block_index]], [prompt_c[block_index]], [late_c[block_index]]]
             
-            # removing the data bits
-            prompt_noData = ((bits * 2) - 1)  * prompt 
-            disc_q4 = (numpy.arctan2(prompt_noData.imag, prompt_noData.real))
-            disc_q2 = (numpy.arctan(prompt_noData.imag / prompt_noData.real))
-            
+            costas_q2 = []
+            bits = []
+            epl_noData = []
+            disc_q4 = []
+            disc_q2 = []
+            for j in [e, p, l]:
+                 # performing 2-quad discriminator
+                 q2 = (numpy.arctan(epl_correlations[j].imag / epl_correlations[j].real))
+                 # finding the data bits
+                 b = ((abs(q2/(pi/2)) - abs(numpy.angle(epl_correlations_c[j])/pi)) + 1) / 2
+                 b = numpy.around(b)
+                 b = b*2 - 1
+                 # removing the data bits from the data 
+                 noData = epl_correlations[j] * b
+                 
+                 # 4 quad. discriminator, based on the NO DATA correlation
+                 q4 = (numpy.arctan2(noData.imag, noData.real))
+                 
+                 # saving the data
+                 costas_q2.append(q2)
+                 bits.append(b)
+                 epl_noData.append(noData)
+                 disc_q4.append(q4)
+                 disc_q2.append(q2)
+                 
             # 3. Use discriminators to estimate state errors. This step will not be a part of the open loop         
             # 3a. Compute code phase error using early-minus-late discriminator. This is based off of Lecture 06, slide 7           
             code_phase_error = epl_chip_spacing * (abs(early) - abs(late)) / (abs(early) + abs(late) + 2*abs(prompt))
@@ -392,10 +431,14 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
             outputs['unfiltered_code_phase'][block_index] = unfiltered_code_phase
             outputs['carr_phase'][block_index] = carr_phase
             outputs['doppler'][block_index] = doppler
-            outputs['nav_bits'][block_index] = bits
-            outputs['disc_q2'][block_index] = disc_q2
-            outputs['disc_q4'][block_index] = disc_q4
             
+            outputs['nav_bits_e'][block_index] = bits[e]          
+            outputs['nav_bits_l'][block_index] = bits[l]
+            outputs['nav_bits_p'][block_index] = bits[p]
+ 
+            outputs['disc_q2'][block_index]= disc_q2[p]
+            outputs['disc_q4'][block_index] = disc_q4[p]
+
     for key in output_keys:
         outputs[key] = outputs[key][:block_index]
     outputs['prn'] = prn
@@ -403,7 +446,9 @@ def track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase,
     outputs['integration_time'] = integration_time
     outputs['time'] = outputs['sample_index'] / source_params['samp_rate']
     outputs['epl_chip_spacing'] = epl_chip_spacing 
-    outputs['closed_corr'] = closed_correlator
+    outputs['e_idx'] = e
+    outputs['p_idx'] = p
+    outputs['l_idx'] = l
     
     return outputs
 
@@ -469,11 +514,10 @@ c_acq, f_acq, n_acq = acquire_GPS_L1CA_signal(data_filepath, source_params, prn,
 outputs_c = track_GPS_L1CA_signal_closed(prn, source_params, 0, n_acq['code_phase'], f_acq['doppler'],
                                          N_integration_code_periods=N_integration_code_periods,
                                          DLL_bandwidth=5, PLL_bandwidth=20, epl_chip_spacing=epl_chip_spacing)
-prompt_c = outputs_c['prompt']
 
 #%% Open loop tracking(and data bit aquisition, task 2)
 outputs_o = track_GPS_L1CA_signal_open(prn, source_params, model_time, model_code_phase, model_doppler, 
-                                       task2=True, quadrant=2, closed_correlator=prompt_c)
+                                       outputs_c)
 
 output_filename = 'PRN-{0:02}_N-int-{1:02}_chpWd-{2:02}_OLR_Q2.mat'.format(
     prn, N_integration_code_periods,epl_chip_spacing)

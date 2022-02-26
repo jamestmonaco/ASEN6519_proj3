@@ -37,9 +37,11 @@ if (recordFig):
         print("The figure directory for this combination already exists. This will re-create the figures in your environment," 
               " but will not save them, as they likely already exist in the folder.")
 
-
+# useful values
 totTime= outputs[i]['time'][-1]
-maxTime = 5
+minTime, maxTime = 0,60
+# e, p, l = outputs[i]['e_idx'],outputs[i]['i_idx'], outputs[i]['l_idx']
+e,p,l = 0,1,2
 #%% Plotting the early, late, and prompt correlator results across I and Q
 # (navigation bits are INCLUDED)
 fig = plt.figure(figsize=(10, 6), dpi=200)
@@ -58,7 +60,7 @@ ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
     ax.grid()
     ax.set_ylim(-ylim, ylim)
-    ax.set_xlim(0, maxTime)
+    ax.set_xlim(minTime,maxTime)
 ax1.set_ylabel('I')
 ax2.set_ylabel('Q')
 ax2.set_xlabel('Time [seconds]')
@@ -73,29 +75,50 @@ if(recordFig):
     plt.savefig(figName)
 
 plt.show()
+#%% Plotting EPL correlators, nav. bits removed
 
-#%% Plotting navigation bits
+# loading the nav bits
+navBits= numpy.array([outputs[i]['nav_bits_e'], outputs[i]['nav_bits_p'], outputs[i]['nav_bits_l']])
+navBits_avg = numpy.around(numpy.mean(navBits/2+0.5, 0)) * 2 - 1
+E_noBits = outputs[i]['early'] * navBits[p]
+P_noBits = outputs[i]['prompt'] * navBits[p] 
+L_noBits = outputs[i]['late'] * navBits[p]
+
+# E_noBits = outputs[i]['early'] * navBits_avg
+# P_noBits = outputs[i]['prompt'] * navBits_avg
+# L_noBits = outputs[i]['late'] * navBits_avg
+
+# plotting
 fig = plt.figure(figsize=(10, 6), dpi=200)
-ax = fig.add_subplot(111)
+axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
+ax1, ax2 = axes
 
-ax.scatter(outputs[i]['time'], abs(outputs[i]['nav_bits_q2']), s=1, color='b', label='2-Quad. Disc.')
-ax.scatter(outputs[i]['time'], abs(outputs[i]['nav_bits_q4']), s=1, color='r', label='4-Quad. Disc.')
+ax1.scatter(outputs[i]['time'], P_noBits.real, s=1, color='b', label='Prompt')
+ax1.scatter(outputs[i]['time'], E_noBits.real, s=1, color='y', label='Early')
+ax1.scatter(outputs[i]['time'], L_noBits.real, s=1, color='r', label='Late')
 
-ax.grid()
-ax.set_ylim(-0.25, 1.25)
-ax.set_xlim(0, maxTime)
-ax.set_ylabel('Navigation Bits [boolean]')
-ax.set_xlabel('Time [seconds]')
-ax.set_xticklabels([])
-ax.legend(markerscale=10, loc=2, framealpha=1)
-txt_label = 'Navigation Bits \n G{0:02}: {1:02} ms, Open Loop'.format(
+ax2.scatter(outputs[i]['time'], P_noBits.imag, s=1, color='b', label='Prompt')
+ax2.scatter(outputs[i]['time'], E_noBits.imag, s=1, color='y', label='Early')
+ax2.scatter(outputs[i]['time'], L_noBits.imag, s=1, color='r', label='Late')
+
+ylim = max(numpy.abs(ax1.get_ylim()))
+for ax in axes:
+    ax.grid()
+    # ax.set_ylim(-ylim, ylim)
+    ax.set_xlim(minTime,maxTime)
+ax1.set_ylabel('I')
+ax2.set_ylabel('Q')
+ax2.set_xlabel('Time [seconds]')
+ax1.set_xticklabels([])
+ax1.legend(markerscale=10, loc=2, framealpha=1)
+txt_label = 'Correlation Values Across IQ channels\n G{0:02}: {1:02} ms, Open Loop, with navigation bits REMOVED'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
-ax.set_title(txt_label)
+ax1.set_title(txt_label)
 
 if(recordFig):
-    figName = figuresDir + 'corrMag_' + fileName + '.png'
+    figName = figuresDir + 'corrVal_noBits_' + fileName + '.png'
     plt.savefig(figName)
-    
+
 plt.show()
 
 #%% Plotting correlation magnitude
@@ -109,7 +132,7 @@ ax.scatter(outputs[i]['time'], abs(outputs[i]['late']), s=1, color='r', label='L
 ylim = max(numpy.abs(ax.get_ylim()))
 ax.grid()
 ax.set_ylim(0, ylim)
-ax.set_xlim(0, maxTime)
+ax.set_xlim(0, 60)
 ax.set_ylabel('IQ Magnitude')
 ax.set_xlabel('Time [seconds]')
 ax.set_xticklabels([])
@@ -136,7 +159,7 @@ code_phase_trend = elapsed_time * adjusted_code_rate
 residual_carr_phase = outputs[i]['carr_phase'] - elapsed_time * ave_doppler
 carr_phase_trend = elapsed_time * ave_doppler + numpy.polyval(numpy.polyfit(elapsed_time, residual_carr_phase, 2), elapsed_time)
 
-# Plot the detrended code and carrier phases
+# Making the plots
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
@@ -197,56 +220,32 @@ if(recordFig):
 plt.show()
 
 #%% Plotting discriminator for 2 or 4 quadrants as indicated above:
-disc = outputs[i]['disc_q2']
-
-fig = plt.figure(figsize=(10,4), dpi=200)
-ax = fig.add_subplot(111)
-
-ax.scatter(outputs[i]['time'], disc[:-1], c='green', s=1, label="With bits")
-
-ax.set_ylabel('Discriminator (bits)')
-ax.set_xlabel('Time [seconds]')
-ax.grid()
-ax.set_xlim(0, maxTime)
-txt_label = '2-Quadrant Costas Discriminator Over Time \n G{0:02}: {1:02} ms, Open Loop'.format(
-    outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
-ax.set_title(txt_label)
-
-if(recordFig):
-    figName = figuresDir + 'disc_' + fileName + '.png'
-    plt.savefig(figName)
-    
-plt.show()
-
-#%% unwrapping the phase
-prompt = outputs[i]['prompt']
 phase_q2 = numpy.unwrap(outputs[i]['disc_q2'] *2) / 2 / (2 * pi) * 360
 phase_q4 = numpy.unwrap(outputs[i]['disc_q4'] *2) / 2 / (2 * pi) * 360
-
-
+    
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
 
-ax1.scatter(outputs[i]['time'], phase_q2, s=1, color='b', label='2-quad. disc.')
-ax2.scatter(outputs[i]['time'], phase_q4, s=1, color='b', label='4-quad. disc.')
+ax1.scatter(outputs[i]['time'], phase_q2, s=1, color='b', label='2-Quad. Disc')
+ax2.scatter(outputs[i]['time'], phase_q4, s=1, color='r', label='4-Quad. Disc')
 
+ylim = max(numpy.abs(ax1.get_ylim()))
 for ax in axes:
     ax.grid()
-    ax.set_xlim(0, maxTime)
-ax1.set_ylabel('Phase [deg]')
-ax2.set_ylabel('Phase [deg]')
+    # ax.set_ylim(-ylim, ylim)
+    ax.set_xlim(minTime,maxTime)
+ax1.set_ylabel('Angle [deg]')
+ax2.set_ylabel('Angle [deg]')
 ax2.set_xlabel('Time [seconds]')
 ax1.set_xticklabels([])
 ax1.legend(markerscale=10, loc=2, framealpha=1)
-
-ax2.legend(markerscale=10, loc=2, framealpha=1)
-txt_label = 'Unwrapped Phase with 2 and 4 quad. Discriminators \n G{0:02}: {1:02} ms, Open Loop'.format(
+txt_label = 'Comparing 2 and 4 quadrent discriminators \n G{0:02}: {1:02} ms, Open Loop'.format(
     outputs[i]['prn'], 1000 * outputs[i]['integration_time'])
 ax1.set_title(txt_label)
 
 if(recordFig):
-    figName = figuresDir + 'phaseUnwrapped_' + fileName + '.png'
+    figName = figuresDir + 'discrims_' + fileName + '.png'
     plt.savefig(figName)
 
 plt.show()
