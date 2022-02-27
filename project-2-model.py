@@ -72,6 +72,8 @@ del navData_in
 
 # Useful constants
 c = 2.998e8 # m/s
+fL1CA = 1.023e6 # Hz
+fL1 = 1575.42e6 # Hz
 
 # Satellite and reciever information
 t_rx = navData['Rx_TimeStamp']
@@ -94,19 +96,51 @@ ClockDrift = navData['Rx_Clk_Drift']
 d_lin = numpy.array([stats.linregress(t_rx,ClockDrift).slope,stats.linregress(t_rx,ClockDrift).intercept])
 CD_lin = d_lin[0]*t_rx+d_lin[1]
 ClockBias = navData['Rx_Clk_Bias']
+SatClockBias = numpy.array([-4.46406396760029e-05]*len(t_rx))
 
 # Converting/calculating values we need:
 S_geo = geo2ecf(numpy.array([S_lat, S_lon, S_alt]))
 Sx, Sy, Sz = S_geo[:,0],S_geo[:,1], S_geo[:,2]
 GeoRange = numpy.sqrt((Sx - Rx_lin)**2 + (Sy - Ry_lin)**2 + (Sz - Rz_lin)**2)
-Range = GeoRange - (ClockBias * c) - CD_lin
+Range = GeoRange - (ClockBias * c) - CD_lin*GeoRange
 
 # Finally calculating the models:
-tau_C = (t_rx - (abs(GeoRange)/c) + signalModel['timeVec'])
+tau_C = ((t_rx - (abs(Range)/c) + SatClockBias + ClockBias) * L1CA_CODE_RATE) % 1023 # within chip range
+
 doppler_C = (c) / (c - Range[1:] / numpy.diff(t_rx) ) # this isn't right, but shows some proportionality
 # doppler_C = (c) / (c - numpy.diff(Range) / numpy.diff(t_rx) ) # this is closer to right, but needs some filtering
 
-#%% Plotting the models/difference:
+#%% Plotting the models/difference (code phase):
+fig = plt.figure(figsize=(10, 6), dpi=200)
+axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
+ax1, ax2 = axes
+
+ax1.scatter(t_rx, tau_C, s=1, color='b', label='Generated code phase')
+# ax1.scatter(t_rx - t_rx[0], Range, s=1, color='b', label='Generated doppler')
+
+ax2.scatter(t_rx - t_rx[0],signalModel['tau_D'][offset:,prn-1], s=1, color='r', label='Given code phase')
+
+ylim = max(numpy.abs(ax1.get_ylim()))
+for ax in axes:
+    ax.grid()
+    # ax.set_ylim(-1815,-1800)
+ax1.set_ylabel('Code Phase [chips]')
+ax2.set_ylabel('Code Phase [chips]')
+ax2.set_xlabel('Time [seconds]')
+ax1.set_xticklabels([])
+ax1.legend(markerscale=10, loc=3, framealpha=1)
+ax2.legend(markerscale=10, loc=3, framealpha=1)
+txt_label = 'Generated and Given Doppler Shifts for G{0:02}'.format(
+    prn)
+ax1.set_title(txt_label)
+
+if(recordFig):
+    figName = figuresDir + 'codePhaseModels_' + fileName + '.png'
+    plt.savefig(figName)
+    
+plt.show()
+    
+#%% Plotting the models/difference (doppler):
 fig = plt.figure(figsize=(10, 6), dpi=200)
 axes = [fig.add_subplot(2, 1, 1 + i) for i in range(2)]
 ax1, ax2 = axes
@@ -125,12 +159,13 @@ ax2.set_ylabel('Doppler [Hz]')
 ax2.set_xlabel('Time [seconds]')
 ax1.set_xticklabels([])
 ax1.legend(markerscale=10, loc=2, framealpha=1)
+ax2.legend(markerscale=10, loc=2, framealpha=1)
 txt_label = 'Generated and Given Doppler Shifts for G{0:02}'.format(
     prn)
 ax1.set_title(txt_label)
 
 if(recordFig):
-    figName = figuresDir + 'corrVal_' + fileName + '.png'
+    figName = figuresDir + 'dopplerModels_' + fileName + '.png'
     plt.savefig(figName)
 
 plt.show()
